@@ -5,6 +5,8 @@ import { createNativeContinuation } from '../continuation.mjs'
 test('manual continuation scopes ownership, refuses live work and never replays the original prompt', async () => {
   const record = { requestId: 'req_original', sessionId: 'session', threadId: 'thread', turnId: 'turn', accountId: 'first', resumeAvailable: true, status: 'attention', title: 'Work', permissionLevel: 'auto', effort: 'xhigh', model: 'model' }
   const calls = [], prepared = []
+  record.gitBaseline = { head: 'original', dirty: [], version: 'v1.2.3.4\n' }
+  record.nativeChangedPaths = ['source.txt']
   const rpc = { ready: async () => {}, call: async (method) => { calls.push(method); return { thread: { status: { type: 'notLoaded' }, turns: [] } } } }
   const resume = createNativeContinuation({ owned: async (project, chat) => { assert.equal(project, '/project'); assert.equal(chat, 'chat'); return record }, accounts: { runtime: async (id) => { assert.equal(id, 'first'); return rpc }, selected: async () => 'second' }, save: async () => {}, publish() {}, interactions: { retire() {} }, journal: { append: async () => {} }, prepare: async (request) => prepared.push(request) })
   await assert.rejects(resume('/project', 'chat', 'req_wrong', 'Continue.', false), /disponível/)
@@ -14,6 +16,8 @@ test('manual continuation scopes ownership, refuses live work and never replays 
   assert.deepEqual(calls, ['thread/read', 'thread/resume'])
   assert.equal(prepared[0].text, 'Reviewed continuation.'); assert.notEqual(prepared[0].requestId, record.requestId)
   assert.equal(prepared[0].permissionLevel, 'auto'); assert.equal(prepared[0].selfEvolution, true); assert.deepEqual(prepared[0].attachments, [])
+  assert.deepEqual(prepared[0].gitBaseline, record.gitBaseline)
+  assert.deepEqual(prepared[0].nativeChangedPaths, ['source.txt'])
 })
 
 test('a refused writer leaves the request retryable and play uses native continuation instructions', async () => {

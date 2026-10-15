@@ -9,6 +9,11 @@ export function registerNativeCodexIPC(d, { handle, send, accountChanged, legacy
   const runtime = () => engine ||= createEngine({ root: path.join(d.app.getPath('userData'), 'codex', 'native'),
     publishAccount: accountChanged,
     publish: (record) => send(record, 'wharnex:codex:event', publicNativeThread(record)),
+    gitSettings: async (record) => {
+      const response = await fetch(new URL(`/api/sessions/${encodeURIComponent(record.sessionId)}/git/overview`, d.BACKEND_URL), { redirect: 'error', signal: AbortSignal.timeout(15000) })
+      if (!response.ok) throw new Error('Configuração Git indisponível.')
+      return response.json()
+    },
     archive: async (record, artifact) => {
       const response = await fetch(new URL(`/api/sessions/${encodeURIComponent(record.sessionId)}/artifacts`, d.BACKEND_URL), {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json' },

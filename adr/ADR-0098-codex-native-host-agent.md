@@ -145,3 +145,36 @@ process was terminated after 279 completed files; the remaining 34 files all
 passed. Four files with additional failures during concurrent load were
 repeated unchanged; all remaining failure identities match the recorded
 unmodified baseline. Drawio lint and backend domain-layout failures remain.
+
+Native Git completion (operator request, 2026-10-15): successful native changes
+now have engine-owned diff/version/commit bookkeeping. The initial Git HEAD,
+dirty paths and bounded canonical VERSION are captured before the turn. Only
+runtime-declared changed paths may enter the commit; pre-existing changes,
+concurrent native turns, moved HEAD, symlinks and secret-like paths fail closed.
+Native manual continuation carries the original baseline and changed paths.
+The current backend Git mode decides automatic versus manual commit; Auto
+Evolution retains the backend's fixed automatic mode. A native change advances
+one patch component in vA.B.C.D, with a missing version starting at v0.0.0.1.
+Advice, failed turns and ineligible changes do not advance the version. A failed
+commit restores VERSION and its selected staging without removing worktree
+changes. Automatic metadata commits disable project Git hooks and signing.
+
+The final result travels in the redacted native ledger and per-request message
+metadata, so later turns and renderer hydration preserve its diffs. Chat reuses
+the existing changed-file card and Monaco inspector, explicitly labelled native
+and without Protected verification, Apply or revert. The Engine also shows the
+finalization activity. The shared card's existing CSS remains an explicit
+appearance-preserving exception; new native UI uses Tailwind. No protocol,
+database or archive migration is required. Old turns without a captured baseline
+are not automatically committed. Shell-only mutations require manual Git review.
+
+Validation: native Git fixtures cover automatic/manual completion, new files,
+missing VERSION, rollback, hooks, previous edits, changed HEAD, unsafe paths,
+overlapping turns and continuation. Focused frontend tests pass, including the
+shared card and hydration. Two Playwright cases pass at 380px in light/dark;
+the screenshot was inspected. Typecheck and production build pass. Full frontend:
+1,271 passed/61 failed, compared with 1,267 passed/64 failed in unmodified HEAD,
+with the same four mock errors. The one additional timeout passes unchanged in
+both isolated reruns. Lint has the same three Drawio errors; domain-layout has
+the same two backend violations. Desktop's launcher shell-handoff failure also
+reproduces in unmodified HEAD. Existing failing assertions were not changed.

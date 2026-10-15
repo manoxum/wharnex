@@ -12,6 +12,25 @@ is scoped to the owning project/chat; the application core stays independent
 of provider details. Earlier Codex planner ZIPs remain recoverable only for
 already pending legacy requests (`adr/ADR-0097`).
 
+Successful native turns have engine-owned Git bookkeeping: capture the initial
+HEAD and dirty paths, present the final diff for native file-change paths, and
+commit eligible changes with the canonical VERSION advanced by one patch
+(`vA.B.C.D`). Advice without changes does not bump or commit. Existing dirty
+paths, a moved HEAD, unsafe paths, missing Git identity or failed turns prevent
+automatic bookkeeping and surface an actionable result; user work is preserved.
+Automatic bookkeeping disables repository hooks and signing, and uses the
+configured Git identity; untrusted project hooks acquire no engine authority.
+This is native bookkeeping, never Protected verification or Apply. The model
+does not write VERSION. The final result is redacted, persisted and archived
+with the native transcript, and restored in the owning chat.
+The project's current Git commit mode is read from the backend at completion;
+manual mode leaves the change and version in the worktree for an operator
+commit. Overlapping native turns in one project disable automatic bookkeeping.
+Only runtime-declared file-change paths are eligible; shell-only mutations
+remain visible in Git for manual review. Scraper integration is unchanged.
+The shared chat diff card retains its existing appearance as an explicit
+styling exception: this change alters its native labels only, with no new CSS.
+
 Native manual continuation preserves thread history and explicit account
 ownership across restart and quota exhaustion. Account selection and login are
 typed Desktop operations with isolated runtime credential homes; live requests

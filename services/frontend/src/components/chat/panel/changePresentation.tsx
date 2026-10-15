@@ -18,13 +18,13 @@ export function ChangeSummaryCard({ item, onInspect, onOpenFile, onRevert }: { i
   const visibleFiles = expanded ? prioritizedFiles : prioritizedFiles.slice(0, CHANGE_DIFF_PREVIEW_COUNT)
   const hiddenCount = Math.max(0, prioritizedFiles.length - visibleFiles.length)
   return <article className="change-summary-card">
-    <header><div><span className="change-summary-icon"><Icon name="apply" size={14}/></span><div><strong>{change.reverted ? 'Alterações revertidas' : 'Alterações aplicadas'}</strong><span>{change.files.length} ficheiro(s) · {formatMessageTime(change.appliedAt)}</span></div></div><code>+{additions} <i>−{deletions}</i></code></header>
+    <header><div><span className="change-summary-icon"><Icon name="apply" size={14}/></span><div><strong>{item.source === 'codex' ? 'Alterações nativas do Codex' : change.reverted ? 'Alterações revertidas' : 'Alterações aplicadas'}</strong><span>{change.files.length} ficheiro(s) · {formatMessageTime(change.appliedAt)}</span></div></div><code>+{additions} <i>−{deletions}</i></code></header>
     {prioritizedFiles.length > 0 && <div className={`change-file-disclosure${hiddenCount ? ' collapsed' : ''}`}>
       <div className="change-file-list">{visibleFiles.map((file) => <div className={`change-file-row${isNormativeChangePath(file.path) ? ' normative' : ''}`} key={file.path}><button type="button" className="change-file-name" onClick={() => onOpenFile?.(file.path)} title="Abrir no Editor"><Icon name="file" size={12}/><span>{file.path}</span>{isNormativeChangePath(file.path) && <em>Normativo</em>}</button><button type="button" className="change-file-diff" onClick={() => onInspect(file)} title="Ver diff"><b>+{file.additions}</b><i>−{file.deletions}</i></button></div>)}</div>
       {prioritizedFiles.length > CHANGE_DIFF_PREVIEW_COUNT && <button type="button" className="change-file-toggle" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}><span aria-hidden="true">{expanded ? '−' : '···'}</span>{expanded ? 'Mostrar menos diffs' : `Mostrar mais ${hiddenCount} diff${hiddenCount === 1 ? '' : 's'}`}</button>}
     </div>}
     {hostCommands.length > 0 && <div className="change-host-commands"><strong>Comandos no host</strong>{hostCommands.map((command, index) => <div className="change-host-command" key={`${command.argv.join(' ')}-${index}`}><code>{command.argv.join(' ')}</code><span>{command.cwd || '.'} · exit {command.exit_code} · {command.duration_ms} ms</span></div>)}</div>}
-    <footer><span>Plano {change.planId}</span>{change.canRevert && <button type="button" className="text-button change-revert" onClick={() => void onRevert?.(item)}><Icon name="refresh" size={12}/> {change.reverted ? 'Repor alteração' : 'Reverter alteração'}</button>}</footer>
+    <footer><span>{item.source === 'codex' ? change.summary : `Plano ${change.planId}`}</span>{change.canRevert && <button type="button" className="text-button change-revert" onClick={() => void onRevert?.(item)}><Icon name="refresh" size={12}/> {change.reverted ? 'Repor alteração' : 'Reverter alteração'}</button>}</footer>
   </article>
 }
 

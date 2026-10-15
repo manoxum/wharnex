@@ -1,4 +1,5 @@
 import { nativePauseReason, normalizeNativeRecovery } from './recovery/state.mjs'
+import { finalizeNativeChanges } from './finalization/index.mjs'
 
 export function publicNativeThread(record) {
   normalizeNativeRecovery(record)
@@ -9,7 +10,7 @@ export function publicNativeThread(record) {
     startedAt: record.startedAt, completedAt: record.completedAt, accountId: record.accountId || 'default', permissionLevel: record.permissionLevel || 'full', selfEvolution: Boolean(record.selfEvolution), resumeAvailable: Boolean(record.resumeAvailable), pauseReason: record.pauseReason || '' }
 }
 
-export function createNativeEvents({ find, save, publish, journal, interactions }) {
+export function createNativeEvents({ find, save, publish, journal, interactions, finalize = finalizeNativeChanges }) {
   return async function notification(method, params) {
     const record = find(params.threadId)
     if (!record || (params.turnId && record.turnId && params.turnId !== record.turnId)) return
@@ -45,6 +46,7 @@ export function createNativeEvents({ find, save, publish, journal, interactions 
       record.messages = [...record.messages.filter((item) => item.id !== params.item.id), { id: params.item.id, role: 'assistant', text: String(params.item.text || '').slice(0, 65536) }]
     }
     if (['item/started', 'item/completed'].includes(method) && ['commandExecution', 'fileChange', 'mcpToolCall', 'reasoning'].includes(params.item?.type)) {
+      if (params.item.type === 'fileChange') record.nativeChangedPaths = [...new Set([...(record.nativeChangedPaths || []), ...(params.item.changes || []).flatMap((change) => [change.path, change.kind?.move_path].filter(Boolean))])]
       record.activities = [...(record.activities || []).filter((item) => item.id !== params.item.id), journal.sanitize(params.item)].slice(-100)
     }
     if (method === 'item/commandExecution/outputDelta') {
@@ -60,6 +62,17 @@ export function createNativeEvents({ find, save, publish, journal, interactions 
       record.resumeAvailable = record.status !== 'completed'
       record.pauseReason = nativePauseReason(params.turn?.error, record.status === 'idle' ? 'interrupted' : record.status === 'attention' ? record.pauseReason || 'failure' : '')
       record.error = record.status === 'attention' ? String(params.turn?.error?.message || 'O Codex terminou com falha. Consulte a conversa.').slice(0, 2000) : ''
+      if (record.status === 'completed' && Object.hasOwn(record, 'gitBaseline')) {
+        record.status = 'running'
+        let result
+        try { result = await finalize(record) }
+        catch { result = { id: 'native-finalization', type: 'nativeResult', status: 'failed', explanation: 'O fecho Git falhou. Reveja a identidade Git, VERSION e as alterações antes de fazer o commit manualmente.' } }
+        result = journal.sanitize(result)
+        record.activities = [...record.activities.filter((item) => item.id !== result.id), result]
+        if (result.changes?.length) record.messages.push({ id: `${record.requestId}-git-result`, role: 'assistant', text: result.explanation, changes: result.changes, requestId: record.requestId, createdAt: record.completedAt })
+        await journal.append(record, 'native/finalized', result)
+        record.status = 'completed'
+      }
       await save(record); publish(record)
       const snapshot = structuredClone(record)
       // Backend archival must never delay another native turn or question.

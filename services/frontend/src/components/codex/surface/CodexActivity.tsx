@@ -7,6 +7,7 @@ const kinds: Record<string, { label: string; icon: IconName }> = {
   plan: { label: 'Plano de trabalho', icon: 'plan' },
   commandExecution: { label: 'Comando', icon: 'terminal' },
   fileChange: { label: 'Alterações de ficheiros', icon: 'file' },
+  nativeResult: { label: 'Resultado nativo · Git e versão', icon: 'file' },
   approvalReview: { label: 'Decisão de aprovação', icon: 'shield' },
 }
 const statuses: Record<string, string> = { completed: 'Terminado', inProgress: 'Em curso', failed: 'Falhou', declined: 'Recusado', pending: 'Pendente', approved: 'Aprovado', denied: 'Negado', timedOut: 'Tempo esgotado', aborted: 'Interrompido' }
@@ -29,7 +30,8 @@ function ActivityContent({ item }: { item: Activity }) {
       {item.cwd && <p className="mb-0 mt-2 break-all font-mono text-[calc(9px*var(--ui-font-scale))] text-whx-faint">{item.cwd}</p>}
       {item.aggregatedOutput && <details className="mt-2"><summary className="cursor-pointer py-1 text-[calc(10px*var(--ui-font-scale))] text-whx-faint">Resultado</summary><pre className={output}>{item.aggregatedOutput}</pre></details>}
     </>
-    case 'fileChange': return <div className="flex flex-col gap-2">{item.changes?.map((change) => <details key={change.path}>
+    case 'nativeResult':
+    case 'fileChange': return <div className="flex flex-col gap-2">{item.explanation && <CodexMarkdown text={item.explanation}/>} {item.changes?.map((change) => <details key={change.path}>
       <summary className="cursor-pointer break-all py-1 font-mono text-[calc(10px*var(--ui-font-scale))]">{change.path}<span className="ml-2 font-sans text-whx-faint">· {changes[change.kind?.type] || change.kind?.type}</span></summary>
       <pre className={output}>{change.diff}</pre>
     </details>)}</div>

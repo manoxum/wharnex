@@ -18,7 +18,18 @@ export function useNativeActivity(projectPath: string, chats: WorkspaceChat[], m
       if (!messages.length) continue
       for (const message of messages) seen.current.add(`${thread.threadId}:${message.id}:${message.text}`)
       callbacks.current.mutate(chat, projectPath, (items) => {
-        const added: ChatItem[] = messages.map((message) => ({ id: `codex-${thread.threadId}-${message.id}`, role: 'harness', source: 'codex', presentation: 'message', text: message.text, meta: 'Codex · execução nativa', createdAt: thread.completedAt || new Date().toISOString() }))
+        const result = thread.activities?.find((item) => item.type === 'nativeResult')
+        const added: ChatItem[] = messages.map((message) => {
+          const changes = message.changes || (message.id === `${thread.requestId}-git-result` ? result?.changes : undefined)
+          const files = changes?.map((file) => ({
+            path: file.path, diff: file.diff,
+            additions: file.diff.split('\n').filter((line) => line.startsWith('+') && !line.startsWith('+++')).length,
+            deletions: file.diff.split('\n').filter((line) => line.startsWith('-') && !line.startsWith('---')).length,
+          }))
+          const requestId = message.requestId || thread.requestId, createdAt = message.createdAt || thread.completedAt || new Date().toISOString()
+          return { id: `codex-${thread.threadId}-${message.id}`, role: 'harness', source: 'codex', presentation: files?.length ? 'change' : 'message', text: message.text, meta: 'Codex · execução nativa', createdAt,
+            ...(files?.length ? { change: { planId: requestId, requestId, summary: message.text, files, appliedAt: createdAt, canRevert: false } } : {}) }
+        })
         return [...items.filter((item) => !added.some((entry) => entry.id === item.id)), ...added]
       })
     }

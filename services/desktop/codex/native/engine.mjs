@@ -9,9 +9,10 @@ import { createCodexAccounts } from '../accounts/index.mjs'
 import { nativePermissionPolicy } from './permissions.mjs'
 import { createNativeContinuation } from './continuation.mjs'
 import { normalizeNativeRecovery } from './recovery/state.mjs'
+import { captureNativeBaseline, finalizeNativeChanges } from './finalization/index.mjs'
 
 const ACTIVE = new Set(['submitting', 'running', 'waiting', 'attention'])
-export function createNativeCodexEngine({ root, publish: onPublish, publishAccount = () => {}, archive, rpcFactory = (options) => new CodexRPC(options) }) {
+export function createNativeCodexEngine({ root, publish: onPublish, publishAccount = () => {}, archive, gitSettings = async () => ({ commit_mode: 'auto' }), rpcFactory = (options) => new CodexRPC(options) }) {
   const store = createCodexState(root)
   const journal = createNativeJournal(root, { archive })
   const publish = (record) => onPublish(journal.sanitize(record))
@@ -29,7 +30,13 @@ export function createNativeCodexEngine({ root, publish: onPublish, publishAccou
   })
   const find = (id, accountId) => records.find((record) => record.threadId === id && (!accountId || (record.accountId || 'default') === accountId))
   const interactions = createNativeInteractions({ find, save, publish, journal })
-  const notification = createNativeEvents({ find, save, publish, journal, interactions })
+  const notification = createNativeEvents({ find, save, publish, journal, interactions,
+    finalize: async (record) => {
+      const settings = await gitSettings(record)
+      if (!['auto', 'manual'].includes(settings.commit_mode)) throw new Error('Modo de commit indisponível.')
+      return finalizeNativeChanges({ ...record, gitCommitMode: settings.commit_mode })
+    },
+  })
   const accounts = createCodexAccounts({ root: path.join(root, 'accounts'), rpcFactory, handlers: {
     accountChanged: publishAccount,
     notification: (accountId, method, params) => {
@@ -79,6 +86,13 @@ export function createNativeCodexEngine({ root, publish: onPublish, publishAccou
     await save(record); publish(record)
     try {
       const preparedInput = await prepareNativeInput(root, request)
+      record.gitBaseline = request.gitBaseline || await captureNativeBaseline(request.projectPath, record)
+      record.nativeChangedPaths = request.nativeChangedPaths || []
+      const concurrent = records.filter((item) => item !== record && item.projectPath === record.projectPath && ['submitting', 'running', 'waiting'].includes(item.status))
+      for (const item of concurrent) {
+        if (item.gitBaseline) { item.gitBaseline.concurrent = true; await save(item) }
+      }
+      if (record.gitBaseline && concurrent.length) record.gitBaseline.concurrent = true
       record.attachments = preparedInput.attachments
       await journal.append(record, 'request/submitted', { prompt: request.text, attachments: preparedInput.attachments, references: preparedInput.references })
       const rpc = await accounts.runtime(accountId)

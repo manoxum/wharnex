@@ -22,6 +22,12 @@ export function configureNativeFixture(status: CodexStatus, thread: CodexThread)
     thread.activities = [{ id: 'long-command', type: 'commandExecution', command: Array.from({ length: 150 }, (_, index) => `command step ${index}`).join('\n'), status: 'completed' }]
     delete thread.resumeAvailable; delete thread.pauseReason; delete thread.accountId
   }
+  if (new URLSearchParams(window.location.search).has('finalization')) {
+    thread.status = 'completed'
+    thread.activities?.push({ id: 'native-finalization', type: 'nativeResult', status: 'completed',
+      explanation: 'Execução nativa · commit abc123 · versão v1.2.3.5',
+      changes: [{ path: 'src/retry.ts', kind: { type: 'update' }, diff: '--- a/src/retry.ts\n+++ b/src/retry.ts\n@@ -1 +1 @@\n-before\n+after' }] })
+  }
 }
 export function installNativeActions(bridge: CodexBridge, status: CodexStatus, thread: CodexThread, publish: () => void) {
   bridge.prepareNative = async () => ({ ok: true })

@@ -8,7 +8,7 @@ export type CodexThread = {
   status: 'idle' | 'submitting' | 'running' | 'ready' | 'attention' | 'completed' | 'waiting'
   native?: boolean; archiveError?: string; pendingAsks?: CodexAsk[]; activities?: CodexActivity[]; startedAt?: string; completedAt?: string
   accountId?: string; permissionLevel?: CodexPermissionLevel; selfEvolution?: boolean; resumeAvailable?: boolean; pauseReason?: string
-  error: string; messages: Array<{ id: string; text: string; role?: 'user' | 'assistant' }>
+  error: string; messages: Array<{ id: string; text: string; role?: 'user' | 'assistant'; changes?: CodexActivity['changes']; requestId?: string; createdAt?: string }>
   tokenUsage: { total: CodexTokens; last: CodexTokens; modelContextWindow: number | null } | null
 }
 export type CodexLimitWindow = { usedPercent: number; windowDurationMins: number; resetsAt: number }

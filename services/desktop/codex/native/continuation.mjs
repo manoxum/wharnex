@@ -36,7 +36,7 @@ export function createNativeContinuation({ owned, accounts, save, publish, inter
       record.status = 'idle'; await save(record); publish(record)
       return await prepare({ projectPath, cacheKey: chatId, sessionId: record.sessionId, requestId: `req_native_${randomUUID().replaceAll('-', '')}`,
         text, chatTitle: record.title, model: record.model, effort: record.effort, permissionLevel: record.permissionLevel || 'full', selfEvolution,
-        attachments: [], projectFiles: [] })
+        attachments: [], projectFiles: [], gitBaseline: record.gitBaseline, nativeChangedPaths: record.nativeChangedPaths })
     } catch (error) {
       console.warn(`[codex] native continuation refused chat=${chatId} request=${requestId} reason=${error.reason || 'continuationFailed'}`)
       if (record?.requestId === requestId) await journal.append(record, 'request/continuation-failed', {

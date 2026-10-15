@@ -54,6 +54,14 @@ The fixed **Ficheiros**, **Plano**, **Execução** and **Engine** surface icons 
 
 ## Codex Engine presentation
 
+After a successful native change, the owning chat uses the shared changed-file
+card and Monaco diff inspector, labelled **Alterações nativas do Codex**. Its
+footer carries the native commit and canonical version, or the manual-commit
+state. It never offers Protected revert or claims Wharnex verification/Apply.
+The Engine activity also retains the final diffs and bookkeeping failures.
+These results are durable per request, including when a later turn clears the
+live activity list; hydration must not duplicate their chat cards.
+
 The explicitly selected native Codex Engine uses a restrained, readable local
 surface. Its unified header identifies Codex as a local agent, shows account,
 connection and plan information, and clearly states that it can execute commands
