@@ -4,7 +4,7 @@ import { errorMessage } from '../../../lib/workspace/dialogs/errorMessage'
 import { promptDialog } from '../../../lib/desktop/bridge/appDialog'
 import { emptyOrchestratorTaskCounts, invalidateChangedOrchestratorTerminalPages, isOrchestratorTask, mergeOrchestratorTaskPages, reconcileOrchestratorTerminalPages } from '../../../lib/orchestrator/coordination/orchestratorApi'
 import { ORCHESTRATOR_TERMINAL_STATUSES, type ChatAgentTask, type OrchestratorOverview as OverviewData, type OrchestratorProposalResult, type OrchestratorTask, type OrchestratorTaskPageQuery, type OrchestratorTerminalTaskPages, type OrchestratorTerminalTaskStatus } from '../../../types'
-import { Icon } from '../../presentation/chrome/Icon'
+import { OrchestratorHeader } from './OrchestratorHeader'
 import { WorkerFollowViewer } from '../../agent/runtime/WorkerFollowViewer'
 import { OrchestratorOverview } from '../overview/OrchestratorOverview'
 import { OrchestratorTasks } from '../tasks/OrchestratorTasks'
@@ -150,20 +150,8 @@ export function OrchestratorWorkspace({ session, chats = [], chatProps, onGoToCh
     )
   }
 
-  const navButtonClass = 'flex min-h-[30px] items-center gap-2 rounded-md border-0 bg-transparent px-3.5 text-base text-[var(--theme-text-muted)] cursor-pointer'
-
-  return <OrchestratorWorkerFollowProvider registry={workerFollows}><section className="orchestrator-workspace">
-    <header className="orchestrator-header">
-      <div>
-        <span className="orchestrator-eyebrow inline-flex items-center gap-1.5 text-base font-bold text-[var(--theme-text)]"><Icon name="plan" size={14}/> Orchestrator</span>
-        <strong className="truncate text-sm font-semibold text-[var(--theme-text-muted)]">Objetivos em fluxo executável</strong>
-      </div>
-      <nav aria-label="Orchestrator">
-        <button className={`${navButtonClass} ${section === 'overview' ? 'active' : ''}`} onClick={() => setSection('overview')}>Overview</button>
-        <button className={`${navButtonClass} ${section === 'tasks' ? 'active' : ''}`} onClick={() => setSection('tasks')}>Tasks <span className="min-w-[18px] rounded-full bg-[var(--theme-subtle)] px-1.5 py-px font-mono text-sm leading-[1.4] text-[var(--theme-text-soft)]">{Object.values(overview.task_counts).reduce((total, count) => total + count, 0)}</span></button>
-      </nav>
-      <button className="orchestrator-refresh" type="button" onClick={() => void refresh()} disabled={busy} aria-label="Atualizar Orchestrator"><Icon name="refresh" size={15}/></button>
-    </header>
+  return <OrchestratorWorkerFollowProvider registry={workerFollows}><section className="orchestrator-workspace @container/orchestration grid min-h-0 min-w-0 flex-1 grid-rows-[40px_minmax(0,1fr)] overflow-hidden bg-whx-bg text-base text-whx-text">
+    <OrchestratorHeader section={section} count={Object.values(overview.task_counts).reduce((total, count) => total + count, 0)} busy={busy} onSection={setSection} onRefresh={() => void refresh()}/>
 
     {section === 'overview' ? <OrchestratorOverview
       session={session}

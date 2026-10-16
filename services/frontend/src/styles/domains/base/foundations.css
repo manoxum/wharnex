@@ -167,7 +167,6 @@ button:disabled { opacity: .46; cursor: not-allowed; }
 .composer-error { margin: 8px 11px 0; padding: 7px 9px; border-left: 2px solid var(--danger); background: #faecea; color: #853a33; font-size: calc(9px * var(--ui-font-scale)); }
 .composer textarea { width: 100%; min-height: 74px; max-height: 180px; resize: vertical; border: 0; background: transparent; padding: 13px 14px 6px; font-size: calc(12px * var(--ui-font-scale)); line-height: 1.5; outline: 0; }
 .composer textarea:disabled { color: #8b8e87; }
-.composer-footer { min-height: 43px; display: flex; align-items: center; justify-content: space-between; padding: 5px 7px 7px 14px; color: #92968c; font-size: calc(9px * var(--ui-font-scale)); }
 .composer-tools { display: flex; align-items: center; min-width: 0; gap: 9px; }
 .attach-button { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 7px; border: 1px solid #d7dacF; border-radius: 7px; background: #f5f6f2; color: #555a50; cursor: pointer; font-size: calc(9px * var(--ui-font-scale)); }
 .send-button { width: 34px; height: 34px; border-radius: 9px; background: var(--dark); color: var(--acid); }

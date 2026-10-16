@@ -1,4 +1,5 @@
-import { ProjectTodoTabs } from './ProjectTodoTabs'
+import { ProjectTodoTabs, type ProjectTodoFilter } from './ProjectTodoTabs'
+import { ProjectTodoEmptyState } from './presentation'
 import { useEffect, useMemo, useState, type ComponentProps } from 'react'
 import type { ProjectTodo, Session } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
@@ -25,9 +26,7 @@ const KIND_LABEL: Record<string, string> = { feature: 'Funcionalidade', improvem
 const URGENCY_LABEL: Record<string, string> = { very_urgent: 'Muito urgente', urgent: 'Urgente', normal: 'Normal', no_urgency: 'Sem urgência' }
 const URGENCY_ORDER: Record<string, number> = { very_urgent: 0, urgent: 1, normal: 2, no_urgency: 3 }
 
-type TodoFilter = 'open' | 'pending' | 'executed' | 'failed' | 'completed'
-
-function todoFilter(todo: ProjectTodo): TodoFilter {
+function todoFilter(todo: ProjectTodo): ProjectTodoFilter {
   if (todo.status === 'done' || todo.archived_at) return 'completed'
   if (todo.execution_status === 'done') return 'executed'
   if (todo.execution_status === 'failed') return 'failed'
@@ -37,13 +36,15 @@ function todoFilter(todo: ProjectTodo): TodoFilter {
 
 export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat, onPromoteToCurrentChat, onLocateChat, onGoToOrchestrator, onError }: Props) {
   const [items, setItems] = useState<ProjectTodo[]>([])
-  const [filter, setFilter] = useState<TodoFilter>('open')
+  const [filter, setFilter] = useState<ProjectTodoFilter>('open')
   const [busy, setBusy] = useState(false)
+  const [initialLoad, setInitialLoad] = useState(true)
   const [composerOpen, setComposerOpen] = useState(false)
 
   async function refresh() {
     try { setItems((await api.projectTodos(session.id)).todos || []) }
     catch (reason) { onError(errorMessage(reason, 'Não foi possível carregar os TODOs.')) }
+    finally { setInitialLoad(false) }
   }
 
   useEffect(() => {
@@ -157,13 +158,7 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
     failed: items.filter((item) => todoFilter(item) === 'failed').length,
     completed: items.filter((item) => todoFilter(item) === 'completed').length,
   }), [items])
-  const emptyCopy: Record<TodoFilter, { title: string; detail: string }> = {
-    open: { title: 'Tudo organizado por aqui', detail: 'TODOs ainda não enviados para chat ou Orchestrator aparecem aqui.' },
-    pending: { title: 'Nada em execução', detail: 'TODOs enviados ficam aqui enquanto o pedido ou plano está a ser processado.' },
-    executed: { title: 'Ainda não há TODOs feitos', detail: 'Execuções terminadas com sucesso aparecem aqui.' },
-    failed: { title: 'Sem falhas', detail: 'TODOs cuja execução falhou aparecem aqui com a ligação ao chat de origem.' },
-    completed: { title: 'Ainda não há TODOs concluídos', detail: 'Itens concluídos manualmente ficam guardados aqui.' },
-  }
+  const showContextualAdd = !initialLoad && filter === 'open' && visible.length === 0 && !composerOpen
 
   return <section className={`project-todo-panel ${composerOpen ? 'composer-open' : ''}`} aria-label="TODO do projeto">
     <header className="agent-drawer-heading project-todo-heading">
@@ -171,15 +166,15 @@ export function ProjectTodoPanel({ session, chatProps, onClose, onPromoteToChat,
       <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar TODO"><Icon name="close" size={13}/></button>
     </header>
     <ProjectTodoTabs value={filter} onChange={setFilter} counts={counts}/>
-    <div className="project-todo-list">
-      {visible.length ? visible.map((todo) => <TodoCard key={todo.id} todo={todo} busy={busy} onStatus={() => void updateStatus(todo)} onRetry={() => void retryClassification(todo)} onChat={() => void onPromoteToChat?.(todo)} onCurrentChat={() => void onPromoteToCurrentChat?.(todo)} onLocate={() => todo.execution_chat_id && onLocateChat?.(todo.execution_chat_id)} onOrchestrator={() => void promoteToOrchestrator(todo)} onDelete={() => void deleteTodo(todo)}/>) : <div className="agent-drawer-empty project-todo-empty"><Icon name="check" size={18}/><strong>{emptyCopy[filter].title}</strong><span>{emptyCopy[filter].detail}</span></div>}
+    <div className={`grid min-h-0 min-w-0 gap-2.5 overflow-auto [scrollbar-gutter:stable] px-2.5 pt-3 ${visible.length || initialLoad ? 'content-start' : 'content-center'} ${composerOpen || showContextualAdd ? 'pb-3' : 'pb-[86px]'}`}>
+      {initialLoad ? <p role="status" className="m-0 px-4 py-6 text-center text-whx-label text-whx-faint">A carregar TODOs…</p> : visible.length ? visible.map((todo) => <TodoCard key={todo.id} todo={todo} busy={busy} onStatus={() => void updateStatus(todo)} onRetry={() => void retryClassification(todo)} onChat={() => void onPromoteToChat?.(todo)} onCurrentChat={() => void onPromoteToCurrentChat?.(todo)} onLocate={() => todo.execution_chat_id && onLocateChat?.(todo.execution_chat_id)} onOrchestrator={() => void promoteToOrchestrator(todo)} onDelete={() => void deleteTodo(todo)}/>) : <ProjectTodoEmptyState filter={filter} onAdd={() => setComposerOpen(true)}/>}
     </div>
     {composerOpen ? <div className="project-todo-composer" aria-label="Nova ideia">
       <header><div><span>Nova ideia</span><strong>Registar TODO</strong></div><button type="button" onClick={() => setComposerOpen(false)} aria-label="Fechar nova ideia"><Icon name="close" size={13}/></button></header>
       <ChatPanel {...chatProps} session={session} items={[]} chats={[]} archivedChats={[]} activeChatId={`project-todo-${session.id}`} busy={busy} composerOnly compactComposer attachmentsEnabled={Boolean(desktopBridge())}
         composerPlaceholder="Descreva a ideia, necessidade, erro ou melhoria…" composerSendLabel="Adicionar TODO" composerHint="Pode usar @file, @ref, @attach e anexar ficheiros. O Worker classifica, detalha e prepara um pré-plano depois."
         onSend={async (message, attachments, projectFiles) => { try { await createTodo(message, attachments, projectFiles) } catch (reason) { onError(errorMessage(reason, 'Não foi possível criar o TODO.')); throw reason } }}/>
-    </div> : <button type="button" className="project-todo-fab" onClick={() => setComposerOpen(true)} aria-label="Adicionar nova ideia" aria-expanded="false"><Icon name="plus" size={17}/><span>Nova ideia</span></button>}
+    </div> : !showContextualAdd ? <button type="button" className="project-todo-fab" onClick={() => setComposerOpen(true)} aria-label="Adicionar nova ideia" aria-expanded="false"><Icon name="plus" size={17}/><span>Nova ideia</span></button> : null}
   </section>
 }
 

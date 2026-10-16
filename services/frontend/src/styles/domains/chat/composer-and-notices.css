@@ -2,8 +2,6 @@
 .composer { overflow: visible; border-radius: 15px; border-color: #d4d9cf; background: #fbfcf9; box-shadow: 0 10px 28px rgba(30,36,27,.06); }
 .composer:focus-within { border-color: #a9b7a0; box-shadow: 0 12px 34px rgba(30,36,27,.09), 0 0 0 2px rgba(126,160,105,.08); }
 .composer textarea { min-height: 76px; padding: 13px 14px 8px; border: 0; background: transparent; resize: none; }
-.composer-footer { padding: 5px 8px 8px; display: grid; gap: 6px; }
-.composer-action-row { min-height: 27px; display: flex; align-items: center; gap: 5px; }
 .composer-submit-row { display: flex; align-items: center; justify-content: space-between; gap: 9px; color: #8a9185; font-size: calc(8px * var(--ui-font-scale)); }
 .composer-round-action { position: relative; width: 25px; height: 25px; padding: 0; display: grid; place-items: center; border: 1px solid transparent; border-radius: 50%; background: #eef1eb; color: #747d70; cursor: pointer; transition: transform .14s ease, background .14s ease, color .14s ease, border-color .14s ease; }
 .composer-round-action:hover:not(:disabled) { transform: translateY(-1px); border-color: #c9d0c4; background: #e7ebe3; color: #384035; }

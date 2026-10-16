@@ -24,9 +24,15 @@ describe('ProjectKnowledgeDrawer', () => {
     vi.spyOn(api, 'projectKnowledgeCatalog').mockResolvedValue({ catalog })
     render(<ProjectKnowledgeDrawer session={session} onClose={vi.fn()}/>)
 
-    expect(await screen.findByRole('button', { name: /toolchain-node/ })).toBeTruthy()
+    const toolchain = await screen.findByRole('button', { name: /toolchain-node/ })
+    expect(toolchain.getAttribute('aria-current')).toBe('page')
+    expect(screen.getByText('r8')).toBeTruthy()
+    expect(screen.getByText('2 registos')).toBeTruthy()
+    expect(screen.getByText('1 para auto-evolução')).toBeTruthy()
+    expect(screen.getByText('When building Desktop, use Node 22.')).toBeTruthy()
+    expect(document.querySelector('.translatable-markdown')?.parentElement?.className).toContain('[&_.markdown-content]:!text-whx-readable')
     fireEvent.change(screen.getByRole('combobox', { name: 'Filtrar categoria de conhecimento' }), { target: { value: 'product_domain' } })
-    expect(screen.getByRole('button', { name: /billing-rules/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /billing-rules/ }).getAttribute('aria-current')).toBe('page')
     expect(screen.queryByRole('button', { name: /toolchain-node/ })).toBeNull()
   })
 

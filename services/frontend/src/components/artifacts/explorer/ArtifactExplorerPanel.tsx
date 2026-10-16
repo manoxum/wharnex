@@ -1,10 +1,10 @@
+import { ArtifactLibraryGrid, ArtifactLibraryHeader, projectName, formatBytes, formatDate } from './library'
 import { ArtifactLibraryTabs } from './ArtifactLibraryTabs'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
 import { requestArtifactIndex } from '../../../lib/artifacts/bundles/artifactIndexing'
 import type { BackendStorageUsage, ManagedArtifact } from '../../../types'
-import { ArtifactPreview } from './ArtifactPreview'
 import { ArtifactViewerModal } from './ArtifactViewerModal'
 import { BundleExplorerModal } from './BundleExplorer'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -147,7 +147,7 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
   }
 
   return <section className="right-tool-panel artifact-explorer-panel file-library-panel">
-    <header className="right-tool-heading artifact-explorer-heading"><div><strong>Biblioteca de ficheiros</strong><span>Todos os artefactos guardados</span></div><div className="file-library-heading-actions">{mode === 'library' ? <button type="button" onClick={() => uploadRef.current?.click()} disabled={uploading} title="Carregar ficheiros"><Icon name="plus" size={16}/></button> : null}<button type="button" onClick={() => void refresh()} aria-label="Atualizar biblioteca" title="Atualizar"><Icon name="refresh" size={16}/></button>{onClose ? <button type="button" onClick={onClose} aria-label="Fechar biblioteca" title="Fechar biblioteca"><Icon name="close" size={16}/></button> : null}</div></header>
+    <ArtifactLibraryHeader uploadable={mode === 'library'} uploading={uploading} onUpload={() => uploadRef.current?.click()} onRefresh={() => void refresh()} onClose={onClose}/>
     <input ref={uploadRef} className="sr-only" type="file" multiple aria-label="Carregar ficheiros para a biblioteca" onChange={(event) => void upload(event.target.files)}/>
 
     <ArtifactLibraryTabs mode={mode} onChange={setMode}/>
@@ -172,7 +172,7 @@ export function ArtifactExplorerPanel({ sessionId, onError, onClose }: { session
     <div className="artifact-explorer-summary"><div><strong>{loading ? 'A carregar…' : filteredItems.length}</strong><span>{mode === 'library' ? 'ficheiros' : 'bundles'} {mode === 'bundles' ? 'filtrados' : 'visíveis'} · {items.length} no total</span></div><div className="artifact-explorer-selection-actions">{visibleItems.length ? <button type="button" onClick={toggleVisibleSelection}>{allVisibleSelected ? (mode === 'bundles' ? 'Limpar página' : 'Limpar visíveis') : (mode === 'bundles' ? 'Selecionar página' : 'Selecionar visíveis')}</button> : null}{selectedKeys.size ? <><span className="file-library-selection-count">{selectedKeys.size} selecionado{selectedKeys.size === 1 ? '' : 's'} · {formatBytes(selectedBytes)}</span><button type="button" className="danger" disabled={deleting} onClick={() => void removeSelected()}><Icon name="trash" size={12}/>{deleting ? 'A eliminar…' : `Eliminar selecionados (${selectedKeys.size})`}</button></> : <small>{mode === 'library' ? 'Use Indexar para inserir @lib no próximo prompt.' : 'Selecione a página atual ou navegue para escolher bundles antigos.'}</small>}</div></div>
 
     {loading && !items.length ? <ContentSkeleton label="A carregar biblioteca de ficheiros" rows={7}/>
-      : viewMode === 'cards' ? <div className="file-library-grid">{visibleItems.map((item) => <ArtifactCard key={artifactKey(item)} item={item} canIndex={mode === 'library'} selected={selectedKeys.has(artifactKey(item))} onToggleSelected={() => toggleSelection(item)} onOpen={() => setSelected(item)} onIndex={() => requestArtifactIndex('lib', `session|${item.session_id}|${item.artifact.id}`)} onDelete={() => void remove(item)}/>)}</div>
+      : viewMode === 'cards' ? <ArtifactLibraryGrid items={visibleItems} canIndex={mode === 'library'} isSelected={(item) => selectedKeys.has(artifactKey(item))} onToggleSelected={toggleSelection} onOpen={setSelected} onIndex={(item) => requestArtifactIndex('lib', `session|${item.session_id}|${item.artifact.id}`)} onDelete={(item) => void remove(item)}/>
         : <ArtifactTable items={visibleItems} mode={mode} selectedKeys={selectedKeys} allVisibleSelected={allVisibleSelected} onToggleAll={toggleVisibleSelection} onToggle={toggleSelection} onOpen={setSelected} onDelete={(item) => void remove(item)}/>}
 
     {!loading && !visibleItems.length && <div className="artifact-preview-empty"><Icon name={mode === 'library' ? 'file' : 'package'} size={28}/><strong>{mode === 'library' ? 'Nenhum ficheiro' : 'Nenhum bundle'}</strong><span>{mode === 'library' ? 'Carregue ficheiros diretamente para a biblioteca ou guarde artefactos de um chat.' : 'Ajuste os filtros ou aguarde por novos bundles trocados com os providers.'}</span></div>}
@@ -191,36 +191,6 @@ function StorageSummary({ storage }: { storage?: BackendStorageUsage }) {
   return <section className="file-library-storage" aria-label="Resumo de ocupação em disco"><div><span>Ocupação em disco</span><strong>{storage ? formatBytes(storage.total_bytes) : 'A calcular…'}</strong></div><div>{values.map(([label, value]) => <span key={label}><small>{label}</small><b>{formatBytes(value)}</b></span>)}</div></section>
 }
 
-function ArtifactCard({ item, canIndex, selected, onToggleSelected, onOpen, onIndex, onDelete }: { item: ManagedArtifact; canIndex: boolean; selected: boolean; onToggleSelected: () => void; onOpen: () => void; onIndex: () => void; onDelete: () => void }) {
-  const artifact = item.artifact
-  const directionLabel = artifact.bundle ? (artifact.direction === 'input' ? 'Pedido' : 'Resposta') : artifact.direction === 'input' ? 'Recebido' : 'Devolvido'
-  return <article className={`file-library-card ${artifact.bundle ? 'file-library-bundle-card' : ''} ${selected ? 'selected' : ''}`}>
-    <label className="artifact-explorer-check file-library-card-check" title={`Selecionar ${artifact.name}`}><input type="checkbox" checked={selected} onChange={onToggleSelected} aria-label={`Selecionar ${artifact.name}`}/><span/></label>
-    <button type="button" className="file-library-card-preview" aria-label={`Abrir ${artifact.name}`} onClick={onOpen}>
-      {artifact.bundle ? <BundleCardPreview item={item}/> : <ArtifactPreview path={artifact.name} size={artifact.size} compact url={api.artifactURL(item.session_id, artifact.id, true)}/>}
-      <span className="file-library-card-type">{artifact.bundle ? 'BUNDLE' : artifactTypeLabel(artifact.name, artifact.content_type)}</span>
-      <span className={`file-library-card-direction ${artifact.direction}`}>{directionLabel}</span>
-    </button>
-    <div className="file-library-card-copy">
-      <div className="file-library-card-title"><span><Icon name={artifact.bundle ? 'package' : 'file'} size={13}/></span><strong title={artifact.name}>{artifact.name}</strong></div>
-      <small title={item.project_path}>{projectName(item.project_path)}{item.chat_id ? ` · ${shortIdentifier(item.chat_id)}` : ''}</small>
-      <span>{formatBytes(artifact.size)} · {formatDate(artifact.created_at)}</span>
-    </div>
-    <div className="file-library-card-actions">
-      <div>{canIndex ? <button type="button" className="file-library-card-primary" onClick={onIndex}><Icon name="link" size={12}/> Indexar</button> : null}<button type="button" onClick={onOpen}><Icon name="external" size={12}/> Abrir</button></div>
-      <div><a href={api.artifactURL(item.session_id, artifact.id)} download={artifact.name} aria-label={`Descarregar ${artifact.name}`} title="Descarregar"><Icon name="download" size={12}/></a><button type="button" className="danger" aria-label={`Eliminar ${artifact.name}`} title="Eliminar" onClick={onDelete}><Icon name="trash" size={12}/></button></div>
-    </div>
-  </article>
-}
-
-function BundleCardPreview({ item }: { item: ManagedArtifact }) {
-  const artifact = item.artifact
-  return <div className={`file-library-bundle-thumbnail ${artifact.direction}`}>
-    <div className="file-library-bundle-file" aria-hidden="true"><span/><Icon name="package" size={28}/><b>ZIP</b></div>
-    <div className="file-library-bundle-thumbnail-copy"><strong>{artifact.direction === 'input' ? 'Bundle de pedido' : 'Bundle de resposta'}</strong><small>{formatBytes(artifact.size)}</small></div>
-  </div>
-}
-
 function BundlePagination({ filteredCount, pageSize, page, pageCount, onPageSize, onPage }: { filteredCount: number; pageSize: PageSize; page: number; pageCount: number; onPageSize: (size: PageSize) => void; onPage: (page: number) => void }) {
   const start = filteredCount ? (pageSize === 'all' ? 1 : (page - 1) * pageSize + 1) : 0
   const end = pageSize === 'all' ? filteredCount : Math.min(filteredCount, page * pageSize)
@@ -232,15 +202,6 @@ function BundlePagination({ filteredCount, pageSize, page, pageCount, onPageSize
 }
 
 function parsePageSize(value: string): PageSize { return value === 'all' ? 'all' : Number(value) as 20 | 50 | 100 }
-
-function artifactTypeLabel(name: string, contentType = '') {
-  const extension = name.split('.').pop()?.trim().toUpperCase()
-  if (extension && extension !== name.toUpperCase() && extension.length <= 6) return extension
-  if (contentType.startsWith('image/')) return 'IMG'
-  if (contentType.startsWith('video/')) return 'VÍDEO'
-  if (contentType.startsWith('audio/')) return 'ÁUDIO'
-  return 'FICHEIRO'
-}
 
 function matchesTimeWindow(createdAt: string, window: TimeWindow, from: string, to: string) {
   if (window === 'all') return true
@@ -257,10 +218,6 @@ function matchesTimeWindow(createdAt: string, window: TimeWindow, from: string, 
 
 function artifactKey(item: ManagedArtifact) { return `${item.session_id}:${item.artifact.id}` }
 function searchableArtifactText(item: ManagedArtifact) { return [item.artifact.name, item.artifact.kind, item.artifact.request_id, item.artifact.sha256, item.project_path, item.chat_id].filter(Boolean).join(' ').toLocaleLowerCase('pt') }
-function projectName(path: string) { return path.replace(/\\/g, '/').split('/').filter(Boolean).pop() || path || 'Projeto' }
-function shortIdentifier(value: string, length = 18) { return value.length > length ? `${value.slice(0, length - 1)}…` : value }
 function compareArtifacts(left: ManagedArtifact, right: ManagedArtifact, mode: SortMode) { const a = left.artifact; const b = right.artifact; if (mode === 'oldest') return Date.parse(a.created_at) - Date.parse(b.created_at); if (mode === 'name-asc') return a.name.localeCompare(b.name, 'pt'); if (mode === 'name-desc') return b.name.localeCompare(a.name, 'pt'); if (mode === 'size-desc') return b.size - a.size; if (mode === 'size-asc') return a.size - b.size; return Date.parse(b.created_at) - Date.parse(a.created_at) }
-function formatBytes(value: number) { if (!Number.isFinite(value) || value <= 0) return '0 B'; const units = ['B', 'KB', 'MB', 'GB', 'TB']; const rank = Math.min(units.length - 1, Math.floor(Math.log(value) / Math.log(1024))); const amount = value / (1024 ** rank); const displayed = rank === 0 || Number.isInteger(amount) || amount >= 10 ? Math.round(amount) : amount.toFixed(1); return `${displayed} ${units[rank]}` }
-function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString() }
 function messageOf(error: unknown) { return error instanceof Error ? error.message : String(error) }
 async function fileBase64(file: File) { const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; const chunk = 0x8000; for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk)); return btoa(binary) }

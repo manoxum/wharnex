@@ -13,6 +13,14 @@ export const DEFAULT_WORKSPACE_RAIL_LAYOUT: WorkspaceRailLayout = {
   pinned: { left: ['terminal'], right: [] },
 }
 
+// Previous defaults repair incomplete persisted layouts without moving tools.
+// New workspaces start with one grouped launcher; saved v9 placement wins.
+export const WORKBENCH_NAVIGATION_LAYOUT: WorkspaceRailLayout = {
+  left: ['project', 'git', 'errors', 'agents', 'external-agents', 'archive', 'tasks', 'evolution', 'todo', 'knowledge', 'library', 'ui-testing', 'docker', 'database'],
+  right: [],
+  pinned: { left: ['terminal'], right: [] },
+}
+
 export function loadWorkspaceRailLayout(scope = ''): WorkspaceRailLayout {
   try {
     const current = localStorage.getItem(STORAGE_KEY)
@@ -109,4 +117,4 @@ function legacyStorageCandidates(key: string, scope: string) {
   if (!scope || key.endsWith('.v1')) return [key]
   return [`${key}:${scope}`, key]
 }
-function cloneDefault(): WorkspaceRailLayout { return { left: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.left], right: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.right], pinned: { left: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left], right: [...DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.right] } } }
+function cloneDefault(): WorkspaceRailLayout { return { left: [...WORKBENCH_NAVIGATION_LAYOUT.left], right: [...WORKBENCH_NAVIGATION_LAYOUT.right], pinned: { left: [...WORKBENCH_NAVIGATION_LAYOUT.pinned.left], right: [...WORKBENCH_NAVIGATION_LAYOUT.pinned.right] } } }

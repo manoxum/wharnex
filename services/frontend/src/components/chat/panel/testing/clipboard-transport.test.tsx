@@ -76,6 +76,7 @@ it('keeps system artifact selectors inside the Wharnex composer and marks automa
     )
     const composer = view.container.querySelector('form')!
     expect(composer.querySelector('.composer-action-row')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Contexto e ferramentas' }))
     expect(screen.getByRole('button', { name: 'Contexto ZIP' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: 'Prompt' }).getAttribute('aria-pressed')).toBe('true')
     expect(composer.querySelector('.composer-reference-thumbnail.transport')).toBeNull()

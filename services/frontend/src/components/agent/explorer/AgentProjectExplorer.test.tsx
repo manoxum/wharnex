@@ -29,7 +29,7 @@ describe('AgentProjectExplorer', () => {
 
     const { container } = render(<AgentProjectExplorer session={session} onOpen={vi.fn()} onError={vi.fn()} onClose={vi.fn()} />)
 
-    expect(await screen.findByText('Explorer')).toBeTruthy()
+    expect(await screen.findByText('harness')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Novo ficheiro' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Nova pasta' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Atualizar ficheiros' })).toBeTruthy()

@@ -1,3 +1,5 @@
+import { Button, EmptyState } from '../../presentation/workbench'
+import { ConnectionSettingsFrame, ConnectionSaveBar, ConnectionStatus } from './connections'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api } from '../../../lib/transport/http/api'
@@ -21,16 +23,19 @@ export function RemoteStorageSettings({ onError }: { onError: (message: string) 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [cleanupWarning, setCleanupWarning] = useState(false)
+  const [loadingError, setLoadingError] = useState('')
+  const [revision, setRevision] = useState(0)
 
   useEffect(() => {
     let alive = true
+    setLoadingError('')
     Promise.all([api.remoteStorageConfig(), api.remoteStorageProviders()]).then(([stored, catalog]) => {
       if (!alive) return
       setInstances((stored.config.instances || []).filter(({ provider }) => provider !== 'trycloudflare').map(normalizeInstance))
       setProviders((catalog.providers || []).map(normalizeProvider))
-    }).catch((error) => { if (alive) onError(messageOf(error, 'Não foi possível carregar os storages remotos')) })
+    }).catch((error) => { if (alive) { const message = messageOf(error, 'Não foi possível carregar os storages remotos'); setLoadingError(message); onError(message) } })
     return () => { alive = false }
-  }, [onError])
+  }, [onError, revision])
 
   function addInstance(provider: RemoteStorageProvider) {
     setSaved(false); setShowCatalog(false)
@@ -113,12 +118,11 @@ export function RemoteStorageSettings({ onError }: { onError: (message: string) 
     finally { setSaving(false) }
   }
 
-  if (!instances || !providers) return <div className="settings-loading compact"><span className="settings-spinner"/>A carregar providers…</div>
+  if (!instances || !providers) return loadingError ? <EmptyState icon="alert" title="Não foi possível carregar os providers" description={loadingError} action={<Button icon="refresh" onClick={() => setRevision((value) => value + 1)}>Tentar novamente</Button>}/>
+    : <p className="p-6 text-whx-label text-whx-faint" role="status">A carregar providers…</p>
 
-  return <section className="remote-storage-settings">
-    <div className="remote-storage-hero"><div className="remote-storage-glyph"><Icon name="network" size={22}/></div><div><span className="eyebrow">Armazenamento</span><h3>Contas de armazenamento</h3><p>Estas contas permanecem configuradas para funcionalidades de storage. Não participam no transporte de pedidos para o ChatGPT.</p></div><button className="secondary-button" onClick={() => setShowCatalog((value) => !value)}><Icon name={showCatalog ? 'close' : 'plus'} size={14}/>{showCatalog ? 'Fechar catálogo' : 'Adicionar provider'}</button></div>
-    <div className="remote-storage-retention"><Icon name="shield" size={15}/><span>Credenciais ficam na configuração privada do rclone e nunca entram no projeto ou no prompt. Objetos remotos são removidos após <strong>7 dias</strong>.</span></div>
-    {saved ? <div className="remote-storage-restart" role="status"><span/><div><strong>Configuração guardada</strong><small>{cleanupWarning ? 'Reinicie para ativar. Algumas credenciais antigas não puderam ser removidas automaticamente.' : 'Reinicie o Wharnex para ativar o novo pool.'}</small></div></div> : null}
+  return <ConnectionSettingsFrame title="Contas de armazenamento" description="Estas contas permanecem configuradas para funcionalidades de storage. Não participam no transporte de pedidos para o ChatGPT." notice={<>Credenciais ficam na configuração privada do rclone e nunca entram no projeto ou no prompt. Objetos remotos são removidos após <strong>7 dias</strong>.</>} catalogOpen={showCatalog} onCatalog={() => setShowCatalog((value) => !value)}>
+    {saved ? <ConnectionStatus warning>{cleanupWarning ? 'Reinicie para ativar. Algumas credenciais antigas não puderam ser removidas automaticamente.' : 'Reinicie o Wharnex para ativar o novo pool.'}</ConnectionStatus> : null}
     {showCatalog ? <ProviderCatalog providers={providers} onSelect={addInstance}/> : null}
 
     <div className="remote-instance-list">
@@ -137,8 +141,8 @@ export function RemoteStorageSettings({ onError }: { onError: (message: string) 
         </article>
       })}
     </div>
-    <div className="remote-storage-actions"><span>{instances.length} {instances.length === 1 ? 'conta configurada' : 'contas configuradas'}</span><button className="primary-button" disabled={saving} onClick={() => void save()}><Icon name="save" size={14}/>{saving ? 'A guardar…' : 'Guardar configuração'}</button></div>
-  </section>
+    <ConnectionSaveBar count={instances.length} noun={instances.length === 1 ? 'conta configurada' : 'contas configuradas'} busy={saving} onSave={() => void save()}/>
+  </ConnectionSettingsFrame>
 }
 
 function ProviderCatalog({ providers, onSelect }: { providers: RemoteStorageProvider[]; onSelect: (provider: RemoteStorageProvider) => void }) { const available = providers.some((provider) => provider.available); return <section className="provider-catalog" aria-label="Providers disponíveis"><header><div><strong>Escolha um storage</strong><span>{available ? 'É possível adicionar várias contas do mesmo provider.' : 'Instale rclone para ativar os providers.'}</span></div></header><div>{providers.map((provider) => <button key={provider.id} disabled={!provider.available} title={provider.available ? undefined : 'rclone não está instalado'} onClick={() => onSelect(provider)}><span className={`provider-mark provider-${provider.id}`}>{providerInitials(provider.name)}</span><span><strong>{provider.name}</strong><small>{provider.description}</small></span><Icon name="chevron" size={14}/></button>)}</div></section> }

@@ -2,16 +2,6 @@
    Sidebars share one compact desktop chrome; only the actual content region
    scrolls, while Git tabs fit the drawer width instead of creating a second
    horizontal scrollbar. */
-.workspace-side-drawer {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--theme-surface);
-}
-.workspace-side-drawer > * {
-  min-width: 0;
-  min-height: 0;
-}
 .workspace-side-drawer .agent-drawer-heading {
   height: 40px;
   min-height: 40px;
@@ -78,58 +68,9 @@
 .directory-glyph-schema { color: #8da7cf; }
 .directory-glyph-tests { color: #b299d2; }
 .directory-glyph-config { color: #a6a98d; }
-.directory-glyph-assets { color: #c69586; }
-.agent-tree-row:hover .file-glyph,
-.agent-tree-row.selected-node .file-glyph { filter: saturate(1.12) brightness(1.06); }
-
-/* Git: one compact tool-window header, flat content margins and no nested
+.directory-glyph-assets { color: #c69586; }/* Git: one compact tool-window header, flat content margins and no nested
    horizontal scrolling. The branch is metadata, not a competing headline. */
-.git-drawer-heading {
-  min-height: 40px;
-  padding: 0 7px 0 10px;
-  background: var(--theme-surface);
-}
-.git-heading-copy {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.git-heading-symbol {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-control);
-  background: var(--theme-muted);
-  color: var(--theme-text-muted);
-}
-.git-heading-text {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-}
-.git-heading-text > strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.git-heading-branch {
-  min-width: 0;
-  padding-left: 7px;
-  border-left: 1px solid var(--theme-border-soft);
-  overflow: hidden;
-  color: var(--theme-text-muted);
-  font-size: calc(7.5px * var(--ui-font-scale));
-  font-family: var(--mono-font-family);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.git-heading-actions { gap: 1px; }
+
 .git-tab-content {
   padding: 0;
   gap: 0;

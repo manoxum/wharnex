@@ -47,11 +47,6 @@
 }
 
 @container semantic-panel (max-width: 430px) {
-  .git-drawer-heading { min-height: 56px; padding-left: 9px; }
-  .git-heading-copy { grid-template-columns: 22px minmax(0, 1fr); column-gap: 7px; }
-  .git-heading-symbol { width: 22px; height: 22px; }
-  .git-heading-text { align-items: flex-start; flex-direction: column; gap: 2px; }
-  .git-heading-branch { max-width: 100%; padding: 0; border: 0; background: transparent; }
   .git-repository-summary { margin-inline: 8px; }
   .git-tab-content { padding: 9px; }
   .git-change-surface, .git-section { padding: 10px; border-radius: 10px; }

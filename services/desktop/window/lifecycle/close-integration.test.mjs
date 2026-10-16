@@ -5,7 +5,7 @@ import { readDesktopCompositionSource } from '../../composition/entry/source.mjs
 import { readComposedDesktopContext } from '../../composition/entry/graph/composed.mjs'
 
 test('desktop close confirmation is renderer-owned while actions stay main-process authoritative', async () => {
-  const [main, windowRuntime, windowAssembly, closeFlow, windowIPC, preload, shell, host, coordinator] = await Promise.all([
+  const [main, windowRuntime, windowAssembly, closeFlow, windowIPC, preload, shell, chrome, host, coordinator] = await Promise.all([
     readDesktopCompositionSource(),
     readFile(new URL('../../composition/window/runtime.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../composition/window/assembly/runtime.mjs', import.meta.url), 'utf8'),
@@ -13,6 +13,7 @@ test('desktop close confirmation is renderer-owned while actions stay main-proce
     readFile(new URL('../project/ipc.mjs', import.meta.url), 'utf8'),
     readFile(new URL('../../preload.cjs', import.meta.url), 'utf8'),
     readFile(new URL('../../../frontend/src/components/workspace/shell/WorkspaceShell.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../../../frontend/src/components/workspace/shell/chrome/ShellChrome.tsx', import.meta.url), 'utf8'),
     readFile(new URL('../../../frontend/src/components/workspace/window/DesktopCloseDialogHost.tsx', import.meta.url), 'utf8'),
     readFile(new URL('./desktop-window-close.mjs', import.meta.url), 'utf8'),
   ])
@@ -30,7 +31,8 @@ test('desktop close confirmation is renderer-owned while actions stay main-proce
   assert.doesNotMatch(closeFlow, /closeProject:/)
   assert.match(preload, /ipcRenderer\.on\('wharness:windows:confirm-close', handler\)/)
   assert.match(preload, /resolveClose: \(action\) => invoke\('wharness:windows:resolve-close'/)
-  assert.match(shell, /<DesktopCloseDialogHost terminals=\{terminalProcesses \|\| \[\]\} \/>/)
+  assert.match(shell, /<ShellChrome[^>]*terminalProcesses=\{terminalClose\.windowTerminals\}/)
+  assert.match(chrome, /<DesktopCloseDialogHost terminals=\{terminalProcesses \|\| \[\]\} \/>/)
 
   // The native prompt is a fallback for a renderer that never showed the
   // modal. The modal must therefore say that it did, end to end, or the two

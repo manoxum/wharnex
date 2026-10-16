@@ -1,36 +1,5 @@
 /* Light settings navigation and provider-management surfaces. */
-:root[data-theme='light'] .settings-navigation {
-  border-color: var(--theme-border);
-  background: #eef1ea;
-}
-:root[data-theme='light'] .settings-navigation button { color: #667163; }
-:root[data-theme='light'] .settings-navigation button:hover { background: #e3e8df; color: #30382d; }
-:root[data-theme='light'] .settings-navigation button.active {
-  border-color: transparent;
-  background: #f8f9f5;
-  color: var(--theme-text);
-  box-shadow: inset 2px 0 var(--theme-accent);
-}
-:root[data-theme='light'] .settings-navigation small { color: #7b8578; }
-:root[data-theme='light'] .settings-navigation button.active small { color: #667163; }
-:root[data-theme='light'] .settings-content,
-:root[data-theme='light'] .remote-storage-settings { background: #f7f8f4; color: var(--theme-text-soft); }
 
-:root[data-theme='light'] .remote-storage-glyph {
-  border-color: #c5d0bc;
-  background: #e8efe2;
-  color: #557d24;
-  box-shadow: none;
-}
-:root[data-theme='light'] .remote-storage-hero .eyebrow { color: #718067; }
-:root[data-theme='light'] .remote-storage-hero h3 { color: var(--theme-text); }
-:root[data-theme='light'] .remote-storage-hero p { color: var(--theme-text-muted); }
-:root[data-theme='light'] .remote-storage-retention {
-  border-color: #bdccaf;
-  background: #edf4e7;
-  color: #596d50;
-}
-:root[data-theme='light'] .remote-storage-retention svg { color: var(--theme-accent); }
 :root[data-theme='light'] .remote-storage-restart { border-color: #d7c18f; background: #f5ecd9; }
 :root[data-theme='light'] .remote-storage-restart > span { background: #b88327; box-shadow: 0 0 0 4px rgba(184,131,39,.1); }
 :root[data-theme='light'] .remote-storage-restart strong { color: #76551d; }
@@ -103,8 +72,3 @@
 :root[data-theme='light'] .remote-limits { border-color: var(--theme-border-soft); }
 :root[data-theme='light'] .remote-limits summary { color: var(--theme-text-soft); }
 :root[data-theme='light'] .remote-limits summary small { color: var(--theme-text-muted); }
-:root[data-theme='light'] .remote-storage-actions {
-  border-color: var(--theme-border);
-  background: rgba(247,248,244,.96);
-}
-:root[data-theme='light'] .remote-storage-actions > span { color: var(--theme-text-muted); }

@@ -50,7 +50,8 @@ export function TabBar({ label, iconsOnly = false, appearance = 'workbench', chi
     if (typeof ref === 'function') ref(node)
     else if (ref) ref.current = node
   }} role="tablist" aria-label={label} data-density={iconsOnly ? 'icons' : appearance !== 'workbench' ? 'full' : density} data-workbench-tabs
-    className={`group/tabs flex flex-nowrap min-w-0 shrink-0 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${appearance !== 'workbench' ? '[&>[data-resource-tab]]:flex-none [&>[data-resource-tab]]:w-max' : ''} ${tabBarAppearance[appearance]} ${className}`}
+    style={{ ...props.style, scrollbarWidth: 'none' }}
+    className={`group/tabs flex flex-nowrap min-w-0 shrink-0 items-stretch overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${appearance !== 'workbench' ? '[&>[data-resource-tab]]:flex-none [&>[data-resource-tab]]:w-max' : ''} ${tabBarAppearance[appearance]} ${className}`}
     onKeyDown={(event) => {
       onKeyDown?.(event)
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return

@@ -1,15 +1,5 @@
 /* Library: desktop toolbar geometry, readable module title and 16px action glyphs. */
-.artifact-explorer-heading {
-  min-height: 46px;
-  padding: 6px 10px 6px 12px;
-  background: var(--theme-surface);
-}
-.artifact-explorer-heading > div { gap: 1px; }
-.artifact-explorer-heading strong { font-size: var(--module-title-size); font-weight: 650; }
-.artifact-explorer-heading > div > span { font-size: var(--ui-meta-size); letter-spacing: .02em; text-transform: none; }
-.file-library-heading-actions { gap: 2px !important; }
-.file-library-heading-actions button { width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
-.file-library-heading-actions button > svg { width: var(--icon-sm); height: var(--icon-sm); }
+
 .file-library-panel .artifact-explorer-toolbar { padding: 6px 8px; gap: 6px; background: var(--theme-surface); }
 .file-library-panel .panel-search-field,
 .file-library-panel .artifact-explorer-toolbar > select { height: var(--toolbar-height); border-radius: var(--radius-control); background: var(--theme-bg); }
@@ -17,29 +7,15 @@
 .file-library-panel .artifact-explorer-toolbar > select { font-size: var(--ui-text-size); }
 .file-view-switch { padding: 1px; border-radius: var(--radius-control); background: var(--theme-bg); }
 .file-view-switch button { width: 29px; height: 29px; border-radius: 3px; }
-.file-view-switch button > svg { width: var(--icon-sm); height: var(--icon-sm); }
+.file-view-switch button > svg { width: var(--icon-sm); height: var(--icon-sm); }/* Database Studio adopts the same flat tool-window chrome and tab scale. */
 
-/* Database Studio adopts the same flat tool-window chrome and tab scale. */
-.database-studio-header {
-  min-height: 48px;
-  padding: 6px 10px;
-  border-bottom-color: var(--theme-border);
-  background: var(--theme-surface);
-}
 .database-studio-mark { width: 30px; height: 30px; flex-basis: 30px; border-radius: var(--radius-control); background: transparent; box-shadow: none; }
-.database-studio-identity { gap: 8px; }
-.database-studio-identity > div { gap: 1px; }
-.database-studio-identity strong { font-size: var(--module-title-size); font-weight: 650; }
-.database-studio-identity > div > span { font-size: var(--ui-meta-size); font-weight: 500; letter-spacing: .02em; text-transform: none; }
 .database-health { min-height: 24px; padding-inline: 7px; border-radius: var(--radius-control); font-size: var(--ui-meta-size); font-weight: 600; }
 .database-health.ready i { box-shadow: none; }
 .database-status { min-height: 32px; padding: 4px 7px 4px 10px; background: var(--theme-surface); font-size: var(--ui-meta-size); }
 .database-status > button { width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
-.database-status > button > svg { width: var(--icon-xs); height: var(--icon-xs); }
+.database-status > button > svg { width: var(--icon-xs); height: var(--icon-xs); }/* Status bar remains 24px but the content is no longer microscopically small. */
 
-/* Status bar remains 24px but the content is no longer microscopically small. */
-.workbench-status-bar { height: 24px; flex-basis: 24px; gap: 10px; font: 600 var(--ui-meta-size)/1 var(--ui-font-family); }
-.workbench-status-bar svg { width: 13px; height: 13px; stroke-width: 1.8; }
 
 /* Core workbench scrollbars stay quiet until interaction. */
 .workspace-root *::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -103,23 +79,19 @@
 .workspace-panel-toolbar .workspace-panel-font-control {
   font: 650 calc(8.2px * var(--ui-font-scale))/1 var(--ui-font-family);
   letter-spacing: -.02em;
-}
-
-/* Reserve the same right-edge action lane for every top-level drawer header.
+}/* Reserve the same right-edge action lane for every top-level drawer header.
    Legacy close/refresh controls are hidden only in that top-level header;
    nested dialogs and content-level refresh actions remain untouched. */
+
+
 .workspace-side-drawer > section > .agent-drawer-heading,
-.workspace-side-drawer > section > .right-tool-heading,
-.workspace-side-drawer > section > .docker-services-header,
-.workspace-side-drawer > .workspace-database-drawer > .database-explorer-panel > .database-studio-header {
+.workspace-side-drawer > section > .right-tool-heading {
   padding-right: 124px;
 }
 .workspace-side-drawer > section > .agent-drawer-heading button[aria-label^='Atualizar'],
 .workspace-side-drawer > section > .agent-drawer-heading button[aria-label^='Fechar'],
 .workspace-side-drawer > section > .right-tool-heading button[aria-label^='Atualizar'],
 .workspace-side-drawer > section > .right-tool-heading button[aria-label^='Fechar'],
-.workspace-side-drawer > section > .docker-services-header button[aria-label^='Atualizar'],
-.workspace-side-drawer > section > .docker-services-header button[aria-label^='Fechar'],
 .workspace-side-drawer > .workspace-database-drawer > .workspace-right-close {
   display: none;
 }

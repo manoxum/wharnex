@@ -47,6 +47,5 @@
   .bootstrap-entry-modes { justify-self:center; }
   .bootstrap-quick-actions,.bootstrap-project-grid { grid-template-columns:1fr; }
   .bootstrap-start-heading { align-items:start; flex-direction:column; gap:2px; }
-  .settings-workspace-picker { grid-template-columns:1fr; }
   .project-actions-popover.project-actions-hub { right:-58px; }
 }

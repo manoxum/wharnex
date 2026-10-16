@@ -1,3 +1,6 @@
+import settingsFrameSource from '../../../components/project/settings/navigation/SettingsFrame.tsx?raw'
+import settingsPageSource from '../../../components/project/settings/presentation/SettingsPage.tsx?raw'
+import connectionSettingsSource from '../../../components/project/settings/connections/ConnectionSettingsFrame.tsx?raw'
 import { tabButtonSource, projectChromeSource } from '../../cascade/tabStyles'
 import { describe, expect, it } from 'vitest'
 import { readStyleSource } from '../../cascade/readStyleSource'
@@ -12,8 +15,14 @@ describe('complete colour themes', () => {
     for (const surface of [
       '.bootstrap-shell', '.workspace-topbar', '.agent-workspace', '.chat-panel',
       '.composer', '.inspector-panel', '.editor-workspace', '.file-explorer',
-      '.ide-terminal', '.context-settings-dialog', '.app-dialog-card',
+      '.ide-terminal', '[data-workbench-settings]', '.app-dialog-card',
     ]) expect(theme).toContain(surface)
+  })
+
+  it('sets the native form-control color scheme with the active theme', () => {
+    expect(theme).toMatch(/:root,\s*:root\[data-theme='light'\]\s*\{[\s\S]*?color-scheme:\s*light;/)
+    expect(theme).toMatch(/:root\[data-theme='dark'\]\s*\{[\s\S]*?color-scheme:\s*dark;/)
+    expect(theme).toContain('input, textarea, select { color-scheme: inherit; }')
   })
 
   it('keeps shared panel searches seamless in both themes', () => {
@@ -57,13 +66,14 @@ describe('complete colour themes', () => {
   })
 
   it('keeps the full settings experience light when the light theme is active', () => {
-    expect(theme).toMatch(/\[data-theme='light'\] \.settings-navigation \{[^}]*background: #eef1ea;/)
-    expect(theme).toMatch(/\[data-theme='light'\] \.settings-content,[\s\S]*?\.remote-storage-settings \{[^}]*background: #f7f8f4;/)
+    expect(settingsFrameSource).toContain('bg-whx-surface')
+    expect(settingsFrameSource).toContain('bg-whx-bg')
+    expect(connectionSettingsSource).toContain('<SettingsPage title={title} description={description}>')
     expect(theme).toMatch(/\[data-theme='light'\] \.remote-instance-card \{[^}]*background: #f8f9f5;/)
     expect(theme).toMatch(/\[data-theme='light'\] \.provider-connection-panel \{[^}]*background: #f2f4ee;/)
-    expect(theme).toMatch(/\[data-theme='light'\] \.remote-storage-actions \{[^}]*background: rgba\(247,248,244,.96\);/)
+    expect(connectionSettingsSource).toContain('border-whx-border-soft bg-whx-bg')
     expect(theme).toMatch(/\[data-theme='light'\] \.remote-instance-grid input,[\s\S]*?background: #fff;/)
-    expect(theme).toContain(":root[data-theme='light'] .settings-navigation button.active {\n  border-color: transparent;")
+    expect(settingsFrameSource).toContain("section === item.id ? '!bg-whx-hover !text-whx-text'")
   })
 
   it('themes the interrupted-execution recovery cards for dark mode instead of leaving them light-only', () => {
@@ -82,8 +92,8 @@ describe('complete colour themes', () => {
   })
 
   it('keeps every dark settings control and active state monochrome', () => {
-    expect(theme).toMatch(/\[data-theme='dark'\] \.context-settings-dialog \.primary-button \{[^}]*background: #ececec;/)
-    expect(theme).toContain("[data-theme='dark'] .context-settings-dialog input[type='checkbox']")
+    expect(theme).toMatch(/\[data-theme='dark'\] \[data-workbench-settings\] \.primary-button \{[^}]*background: #ececec;/)
+    expect(theme).toContain("[data-theme='dark'] [data-workbench-settings] input[type='checkbox']")
     expect(theme).toContain('accent-color: #d0d0d0')
     expect(theme).toContain("[data-theme='dark'] .context-filter-switch button.active.included")
     expect(theme).toContain("[data-theme='dark'] .context-rule-state.enabled")
@@ -136,11 +146,14 @@ describe('workbench theme registry', () => {
   })
 
   it('keeps settings cards and native select menus on the selected IDE palette', () => {
-    expect(theme).toContain(':root[data-ui-theme] .settings-premium-card')
-    expect(theme).toContain(':root[data-ui-theme] .settings-navigation button.active')
-    expect(theme).toContain(':root[data-ui-theme] .settings-navigation button.active { border-color: transparent;')
+    expect(settingsPageSource).toContain('border-whx-border-soft')
+    expect(settingsPageSource).toContain('!text-whx-text')
+    expect(settingsFrameSource).toContain('!border-0')
+    expect(settingsFrameSource).toContain('!text-whx-text')
     expect(theme).toContain(':root[data-ui-theme] .quick-switcher-select-shell select option')
     expect(theme).toContain('background: var(--theme-elevated); color: var(--theme-text);')
+    expect(theme).toContain(':root[data-ui-theme] option { background-color: var(--theme-elevated); color: var(--theme-text); }')
+    expect(theme).toContain(':root[data-ui-theme] option:checked { background-color: var(--theme-accent-soft); color: var(--theme-text); }')
   })
 })
 

@@ -7,7 +7,7 @@ import { panelRef, typeInComposer, session, chatActions } from './panelTestFixtu
 describe('ChatPanel', () => {
   afterEach(() => { clearEphemeralComposerDrafts(); delete window.wharnessDesktop; vi.restoreAllMocks(); vi.unstubAllGlobals(); if (document.querySelector('.app-dialog-backdrop')) fireEvent.keyDown(document, { key: 'Escape' }); Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }) })
 
-it('moves execution and automation choices into compact composer icons', () => {
+it('keeps execution visible and reveals every automation choice on demand', () => {
     const onExecutionMode = vi.fn()
     const onAutomationMode = vi.fn()
     const view = render(
@@ -15,14 +15,15 @@ it('moves execution and automation choices into compact composer icons', () => {
     )
     const composer = view.container.querySelector('form')!
     expect(composer.querySelector('[aria-label="Proteção de execução"]')).toBeTruthy()
-    expect(composer.querySelector('[aria-label="Automação de execução"]')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Protected' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: 'Manual' }).getAttribute('aria-pressed')).toBe('true')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Unprotected' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Full' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Auto' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Auto + Aprovar' }))
+    const execution = screen.getByRole('combobox', { name: 'Proteção de execução' }) as HTMLSelectElement
+    expect(execution.value).toBe('protected')
+    fireEvent.change(execution, { target: { value: 'unprotected' } })
+    fireEvent.change(execution, { target: { value: 'full' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Execução e transporte' }))
+    const automation = screen.getByRole('combobox', { name: 'Automação de execução' }) as HTMLSelectElement
+    expect(automation.value).toBe('manual')
+    fireEvent.change(automation, { target: { value: 'auto' } })
+    fireEvent.change(automation, { target: { value: 'auto_approve' } })
     expect(onExecutionMode).toHaveBeenCalledWith('unprotected')
     expect(onExecutionMode).toHaveBeenCalledWith('full')
     expect(onAutomationMode).toHaveBeenCalledWith('auto')
@@ -38,6 +39,7 @@ it('keeps provider reasoning separate from the autonomous attempt budget', () =>
     expect(picker.value).toBe('medium')
     fireEvent.change(picker, { target: { value: 'instant' } })
     expect(onReasoningEffort).toHaveBeenCalledWith('instant')
+    fireEvent.click(screen.getByRole('button', { name: 'Execução e transporte' }))
     expect((screen.getByLabelText('Nível de esforço') as HTMLSelectElement).value).toBe('ultra')
   })
 
@@ -53,8 +55,10 @@ it('keeps Unprotected disabled in the composer during self-evolution', () => {
     render(
       <ChatPanel session={{ ...session, self_evolution: true }} items={[]} chats={[]} activeChatId="chat-1" busy={false} executionMode="protected" automationMode="auto_approve" onExecutionMode={vi.fn()} onAutomationMode={vi.fn()} onSend={async () => undefined} {...chatActions} />,
     )
-    expect((screen.getByRole('button', { name: 'Unprotected' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByRole('button', { name: 'Auto + Aprovar' }).getAttribute('aria-pressed')).toBe('true')
+    expect((screen.getByRole('option', { name: 'Unprotected · host direto' }) as HTMLOptionElement).disabled).toBe(true)
+    expect((screen.getByRole('option', { name: 'Full · host direto' }) as HTMLOptionElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Execução e transporte' }))
+    expect((screen.getByRole('combobox', { name: 'Automação de execução' }) as HTMLSelectElement).value).toBe('auto_approve')
   })
 
 it('keeps composer actions outside the scrolling text surface', () => {

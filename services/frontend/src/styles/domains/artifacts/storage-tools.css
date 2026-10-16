@@ -26,11 +26,6 @@
 .right-tool-search input:focus { border-color: var(--theme-accent); }
 .right-tool-search button, .database-connection-actions button, .database-run { min-height: 30px; padding: 0 9px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid var(--theme-border); border-radius: 6px; background: var(--theme-surface); color: var(--theme-text-soft); text-decoration: none; cursor: pointer; }
 .right-tool-search button:hover, .database-connection-actions button:hover:not(:disabled), .database-run:hover:not(:disabled) { background: var(--theme-hover); color: var(--theme-text); }
-.artifact-explorer-heading { min-height: 58px; padding-top: 10px; padding-bottom: 10px; }
-.artifact-explorer-heading > div { gap: 3px; }
-.artifact-explorer-heading > div > span { font-size: calc(8.5px * var(--ui-font-scale)); letter-spacing: .08em; }
-.artifact-explorer-heading strong { font-size: calc(12px * var(--ui-font-scale)); font-weight: 750; }
-.artifact-explorer-heading > button { width: 30px; height: 30px; border-radius: 8px; }
 .artifact-explorer-toolbar { padding: 9px 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; border-bottom: 1px solid var(--theme-border-soft); background: color-mix(in srgb, var(--theme-surface) 58%, var(--theme-bg)); }
 .artifact-explorer-search { min-width: 0; }
 .artifact-explorer-toolbar > select, .artifact-explorer-toolbar > button, .artifact-explorer-filters select, .artifact-explorer-filters input { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--theme-border); border-radius: 10px; background: var(--theme-elevated); color: var(--theme-text-soft); font-size: calc(9px * var(--ui-font-scale)); outline: none; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent); transition: border-color .12s ease, background-color .12s ease, color .12s ease; }

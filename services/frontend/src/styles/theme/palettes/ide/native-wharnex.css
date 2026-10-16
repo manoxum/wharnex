@@ -14,7 +14,7 @@
   --acid-dark: #9acd54;
   --danger: #e27676;
   --warning: #d8bb70;
-  --success: #9fcb73;
+  --success: #79b5a1;
   --theme-bg: #111311;
   --theme-surface: #151715;
   --theme-elevated: #181a18;
@@ -23,7 +23,7 @@
   --theme-hover: #222522;
   --theme-text: rgba(255,255,255,.90);
   --theme-text-soft: rgba(255,255,255,.64);
-  --theme-text-muted: rgba(255,255,255,.42);
+  --theme-text-muted: rgba(255,255,255,.52);
   --theme-border: rgba(255,255,255,.055);
   --theme-border-soft: rgba(255,255,255,.04);
   --theme-accent: #9acd54;
@@ -45,11 +45,6 @@
 }
 :root[data-theme] .chat-panel .composer:focus-within {
   border-color: color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border));
-  box-shadow: none;
-}
-:root[data-theme] .settings-premium-card:is(section, div) {
-  border-color: var(--theme-border-soft);
-  background: transparent;
   box-shadow: none;
 }
 :root[data-theme] .attention-center-summary > span,

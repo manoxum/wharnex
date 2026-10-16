@@ -1,3 +1,6 @@
+import diffReviewSource from '../../../components/git/review/presentation/DiffReviewFrame.tsx?raw'
+import operationSurface from '../../../components/git/review/operations/operationSurface.ts?raw'
+import operationProgress from '../../../components/git/review/operations/GitOperationProgress.tsx?raw'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -22,6 +25,7 @@ describe('Git workbench CSS', () => {
   it('keeps Git tabs fully visible and increases the working-copy reading density', () => {
     const tabs = tabBarSource
     const gitTabs = readFileSync(resolve(process.cwd(), 'src/components/git/review/GitTabs.tsx'), 'utf8')
+    const projectTree = readFileSync(resolve(process.cwd(), 'src/components/agent/explorer/ProjectExplorerTree.tsx'), 'utf8')
     const pendingCommit = lastRule('.git-unpushed-list li')
     expect(gitTabs).toContain('label="Secções do Git"')
     expect(gitTabs.match(/id: '(?:changes|history|contributors|branches|settings)'/g)).toHaveLength(5)
@@ -30,21 +34,18 @@ describe('Git workbench CSS', () => {
     expect(gitTabs.match(/id: '(?:working|pending)'/g)).toHaveLength(2)
     expect(tabs).not.toContain('overflow-hidden')
     expect(pendingCommit).toContain('min-height: 52px')
-    expect(lastRule('.agent-tree-row')).toContain('height: 30px')
+    expect(projectTree).toContain('h-[28px]')
   })
 
   it('gives Git mutations a modal processing surface with visible progress', () => {
-    const backdrop = firstRule('.git-operation-backdrop')
-    const modal = firstRule('.git-operation-modal')
-    const progress = firstRule('.git-operation-progress')
-
-    expect(backdrop).toContain('position: absolute')
-    expect(backdrop).toContain('backdrop-filter: blur(5px)')
     expect(lastRule('.project-git-operation-layer')).toContain('position: fixed')
     expect(lastRule('.project-git-operation-layer')).toContain('inset: 0')
-    expect(modal).toContain('grid-template-columns: 42px minmax(0,1fr)')
-    expect(progress).toContain('height: 4px')
-    expect(css).toContain('@keyframes git-operation-progress')
+    expect(operationSurface).toContain('grid-cols-[48px_minmax(0,1fr)]')
+    expect(operationSurface).toContain('border-whx-border bg-whx-elevated')
+    expect(operationProgress).toContain('h-1.5 min-w-0 flex-1 overflow-hidden')
+    expect(operationProgress).toContain('animate-pulse motion-reduce:animate-none')
+    expect(operationProgress).toContain('aria-label="Progresso da operação"')
+    expect(operationProgress).toContain('aria-live="polite"')
   })
 
   it('lets generic Git diff windows use the viewport width and keeps the worktree file rail visible', () => {
@@ -61,7 +62,7 @@ describe('Git workbench CSS', () => {
     const heading = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-heading')
     const actions = firstRule('.git-history-commit-modal > .git-history-commit-header > .git-history-commit-actions')
     const stats = firstRule('.git-history-commit-stats')
-    const activeFile = lastRule('.git-history-commit-modal .git-diff-review-file-list > button.active')
+    const activeFile = diffReviewSource
 
     expect(modal).toContain('width: min(1680px, calc(100vw - 32px))')
     expect(modal).toContain('border-radius: 16px')
@@ -70,7 +71,8 @@ describe('Git workbench CSS', () => {
     expect(heading).toContain('display: flex')
     expect(actions).toContain('display: flex')
     expect(stats).toContain('grid-template-columns: repeat(3, minmax(54px, auto))')
-    expect(activeFile).toContain('box-shadow: inset 2px 0 0 var(--theme-accent)')
+    expect(activeFile).toContain('aria-pressed={file.id === selected.id}')
+    expect(activeFile).toContain("file.id === selected.id ? 'active !bg-whx-hover !text-whx-text'")
   })
 
   it('keeps history rows graph-first and compact', () => {

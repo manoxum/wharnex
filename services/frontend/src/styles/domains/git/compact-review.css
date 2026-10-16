@@ -33,11 +33,6 @@
   background: var(--theme-surface);
 }
 
-@container semantic-panel (max-width: 430px) {
-  .git-heading-text { grid-template-columns: minmax(0, 1fr); gap: 1px; }
-  .git-heading-branch { padding-left: 0; border-left: 0; }
-}
-
 /* v1.2.52 — terminal chrome, editor search readability and operational surfaces. */
 .terminal-workspace:not(.terminal-workspace-hidden) {
 

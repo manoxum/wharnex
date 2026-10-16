@@ -23,7 +23,8 @@ describe('project-wide push button', () => {
     }
     fireEvent.click(button)
     const review = await screen.findByRole('dialog', { name: 'Push completo do projeto' })
-    expect(within(review).getByRole('navigation', { name: 'Repositórios revistos' }).textContent).toContain('clean')
+    const repositories = await within(review).findByRole('navigation', { name: 'Repositórios revistos' })
+    expect(repositories.textContent).toContain('clean')
     expect(api.gitPush).not.toHaveBeenCalled()
     await confirmGitReview()
     await waitFor(() => expect(api.gitPush).toHaveBeenCalledTimes(3))

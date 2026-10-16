@@ -1,12 +1,5 @@
 /* Git */
-.git-heading-branch {
-  width: fit-content;
-  max-width: 100%;
-  padding: 4px 8px;
-  border: 1px solid var(--theme-border-soft);
-  border-radius: 999px;
-  background: var(--theme-muted);
-}
+
 .git-tab-content { padding: 14px; gap: 12px; background: transparent; }
 .git-section,
 .git-worktree-card,

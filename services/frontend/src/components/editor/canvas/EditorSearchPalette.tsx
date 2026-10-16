@@ -13,9 +13,12 @@ type Props = {
   files: FileEntry[]
   onClose: () => void
   onOpen: (path: string, line?: number, column?: number) => void
+  loadingFiles?: boolean
+  filesError?: string
+  onRetryFiles?: () => void
 }
 
-export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen }: Props) {
+export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen, loadingFiles = false, filesError = '', onRetryFiles }: Props) {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regex, setRegex] = useState(false)
@@ -30,6 +33,8 @@ export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen }:
   const inputRef = useRef<HTMLInputElement>(null)
   const fileMatches = useMemo(() => rankWorkspaceFiles(files, query), [files, query])
   const resultCount = mode === 'files' ? fileMatches.length : matches.length
+  const pending = loading || (mode === 'files' && loadingFiles)
+  const visibleError = mode === 'files' ? filesError : error
 
   useEffect(() => { inputRef.current?.focus() }, [])
   useEffect(() => {
@@ -101,7 +106,7 @@ export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen }:
       <label className="editor-search-input">
         <Icon name="search" size={16}/>
         <input ref={inputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={mode === 'files' ? 'Nome ou caminho do ficheiro…' : 'Texto, símbolo ou expressão…'} aria-label={mode === 'files' ? 'Nome do ficheiro' : 'Texto a pesquisar'}/>
-        {loading ? <span className="editor-search-spinner" aria-label="A pesquisar"/> : query ? <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={12}/></button> : null}
+        {pending ? <span className="editor-search-spinner" aria-label="A pesquisar"/> : query ? <button type="button" onClick={() => setQuery('')} aria-label="Limpar pesquisa"><Icon name="close" size={12}/></button> : null}
       </label>
       {mode === 'project' && <div className="editor-search-options" aria-label="Opções de pesquisa">
         <button type="button" aria-pressed={caseSensitive} onClick={() => setCaseSensitive((value) => !value)} title="Distinguir maiúsculas de minúsculas"><b>Aa</b> Maiúsculas</button>
@@ -115,9 +120,9 @@ export function EditorSearchPalette({ mode, sessionId, files, onClose, onOpen }:
         </button>) : matches.map((match, index) => <button type="button" role="option" aria-selected={index === activeIndex} className={index === activeIndex ? 'active' : ''} key={`${match.path}:${match.line}:${match.column}:${index}`} onMouseEnter={() => setActiveIndex(index)} onClick={() => { onOpen(match.path, match.line, match.column); onClose() }}>
           <FileGlyph path={match.path} size={14}/><span><strong>{match.path}<em>{match.line}:{match.column}</em></strong><small>{match.preview || 'Linha sem pré-visualização'}</small></span>
         </button>)}
-        {!loading && query && !error && resultCount === 0 ? <div className="editor-search-empty"><Icon name="search" size={18}/><strong>Sem resultados</strong><span>Tente outro termo ou altere as opções de correspondência.</span></div> : null}
+        {!pending && query && !visibleError && resultCount === 0 ? <div className="editor-search-empty"><Icon name="search" size={18}/><strong>Sem resultados</strong><span>Tente outro termo ou altere as opções de correspondência.</span></div> : null}
         {!query && mode === 'project' && <div className="editor-search-empty compact"><span>Caracteres especiais são literais por defeito. Ative Regex apenas quando quiser uma expressão.</span></div>}
-        {error && <div className="editor-search-error"><Icon name="alert" size={14}/><span>{error}</span></div>}
+        {visibleError && <div className="editor-search-error" role="alert"><Icon name="alert" size={14}/><span>{visibleError}</span>{mode === 'files' && onRetryFiles && <button type="button" onClick={onRetryFiles}>Tentar novamente</button>}</div>}
       </div>
       <footer><span>{resultCount} {resultCount === 1 ? 'resultado' : 'resultados'}{truncated ? ' · primeiros 300' : ''}</span><span><kbd>↑</kbd><kbd>↓</kbd> navegar · <kbd>Enter</kbd> abrir · <kbd>Esc</kbd> fechar</span></footer>
     </section>

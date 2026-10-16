@@ -1,3 +1,4 @@
+import { DockerPanelHeader, DockerContainerRow, DockerCondition, DockerStateDot, dockerCondition, dockerContainerRunning, dockerConditionLabel } from './presentation'
 import { DockerDetailTabs } from './DockerDetailTabs'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { DockerComposeProject, DockerComposeService, DockerContainer, DockerContainerAction, DockerImage, DockerNetwork, DockerOverview, DockerResourceKind, DockerVolume, Session, TerminalRunInput } from '../../../types'
@@ -211,13 +212,7 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
   }
 
   return <section className="docker-services-panel" aria-label="Serviços Docker">
-    <header className="docker-services-header">
-      <div><span className="panel-kicker">Services</span><strong>Docker</strong><small>Host local · Compose, containers, imagens, volumes e redes</small></div>
-      <div className="docker-services-header-actions">
-        <button type="button" onClick={() => void refresh(true)} disabled={loading} title="Atualizar Docker" aria-label="Atualizar Docker"><Icon name="refresh" size={16}/></button>
-        <button type="button" onClick={onClose} title="Fechar Docker" aria-label="Fechar Docker"><Icon name="close" size={16}/></button>
-      </div>
-    </header>
+    <DockerPanelHeader loading={loading} onRefresh={() => void refresh(true)} onClose={onClose}/>
 
     {loadError ? <div className="docker-services-offline"><Icon name="alert" size={16}/><div><strong>Docker indisponível</strong><span>{loadError}</span></div><button type="button" onClick={() => void refresh(true)}>Tentar novamente</button></div> : null}
 
@@ -241,7 +236,7 @@ export function DockerServicesPanel({ session, onClose, onError, onRunInTerminal
               <div className="docker-compose-heading">
                 <button type="button" className="docker-compose-toggle" aria-expanded={projectOpen} aria-label={`${projectOpen ? 'Recolher' : 'Expandir'} Compose ${project.name}`} onClick={() => toggleProject(project.name)}>
                   <Icon name="chevron-right" size={10}/>
-                  <span className={`docker-state-dot state-${dockerComposeTone(project)}`} aria-hidden="true"/>
+                  <DockerStateDot tone={dockerComposeTone(project)}/>
                   <span className="docker-resource-copy"><strong>{project.name}</strong><small>{composeSummary(project)}</small></span>
                 </button>
                 <div className="docker-compose-actions">
@@ -300,16 +295,6 @@ function DockerSection({ label, icon, count, open, onToggle, children }: { label
   return <section className="docker-resource-section"><button type="button" className="docker-section-heading" aria-expanded={open} onClick={onToggle}><Icon name="chevron-right" size={10}/><Icon name={icon} size={13}/><strong>{label}</strong><span>{count}</span></button>{open ? <div className="docker-section-items">{children}</div> : null}</section>
 }
 
-function DockerContainerRow({ container, active, onSelect }: { container: DockerContainer; active: boolean; onSelect: () => void }) {
-  const condition = dockerCondition(container)
-  return <button type="button" className={`docker-resource-row docker-container-row ${active ? 'active' : ''}`} onClick={onSelect} aria-label={`Ver detalhes do container ${container.name || container.id}`}>
-    <span className={`docker-state-dot state-${dockerStateTone(condition)}`} aria-hidden="true"/>
-    <span className="docker-resource-copy"><strong>{container.name || container.id}</strong><small>{container.compose_service ? `${container.compose_service} · ` : ''}{container.image}</small></span>
-    <span className={`docker-row-state state-${dockerStateTone(condition)}`}>{dockerConditionLabel(condition)}</span>
-    {container.protected ? <span className="docker-protected-mark" title="Backend Wharnex" aria-label="Backend Wharnex"><Icon name="shield" size={11}/></span> : null}
-  </button>
-}
-
 function DockerResourceRow({ icon, title, subtitle, active, selectLabel, onSelect, usage, action }: { icon: DockerSectionIcon; title: string; subtitle: string; active: boolean; selectLabel: string; onSelect: () => void; usage: ReactNode; action?: ReactNode }) {
   return <div className={`docker-resource-row docker-detail-resource-row ${active ? 'active' : ''}`}>
     <button type="button" className="docker-resource-select" onClick={onSelect} aria-label={selectLabel}>
@@ -334,7 +319,7 @@ function DockerContainerDetail({ container, running, detailTab, logs, logsLoadin
 }) {
   const condition = dockerCondition(container)
   return <>
-    <DockerDetailHeading icon="container" title={container.name} subtitle={`${container.id} · ${container.image}`} badge={<span className={`docker-state-pill state-${dockerStateTone(condition)}`}>{dockerConditionLabel(condition)}</span>}/>
+    <DockerDetailHeading icon="container" title={container.name} subtitle={`${container.id} · ${container.image}`} badge={<DockerCondition state={condition}/>}/>
     <div className="docker-container-actions" role="toolbar" aria-label={`Ações de ${container.name}`}>
       {!running ? <button type="button" disabled={Boolean(actionBusy) || container.protected} onClick={() => void onRunAction('start')}><Icon name="play" size={12}/> Start</button> : <button type="button" disabled={Boolean(actionBusy) || container.protected} onClick={() => void onRunAction('stop')}><Icon name="pause" size={12}/> Stop</button>}
       <button type="button" disabled={Boolean(actionBusy) || container.protected} onClick={() => void onRunAction('restart')}><Icon name="refresh" size={12}/> Restart</button>
@@ -539,10 +524,6 @@ function dockerNetworkBuiltIn(network: DockerNetwork) { return ['bridge', 'host'
 function dockerUsageDescription(inUse: boolean, count = 0) { return inUse ? `${count || 1} container${count === 1 ? '' : 's'} associado${count === 1 ? '' : 's'}` : 'Sem containers associados' }
 function DockerEmpty({ text }: { text: string }) { return <div className="docker-resource-empty">{text}</div> }
 function DockerFact({ label, value }: { label: string; value: string }) { return <div className="docker-fact"><span>{label}</span><strong>{value}</strong></div> }
-function dockerCondition(container: DockerContainer) { return (container.condition || container.state || 'stopped').toLowerCase() }
-function dockerContainerRunning(container: DockerContainer) { return ['running', 'restarting'].includes(dockerCondition(container)) }
-function dockerStateTone(state: string) { const value = (state || '').toLowerCase(); if (value === 'running') return 'running'; if (value === 'error' || value === 'dead') return 'error'; if (value === 'restarting' || value === 'paused') return 'warning'; return 'stopped' }
-function dockerConditionLabel(state: string) { const value = (state || '').toLowerCase(); if (value === 'running') return 'A correr'; if (value === 'error' || value === 'dead') return 'Erro'; if (value === 'restarting') return 'A reiniciar'; if (value === 'paused') return 'Pausado'; if (value === 'created') return 'Criado'; return 'Parado' }
 function dockerComposeTone(project: DockerComposeProject) { if (project.error_count > 0) return 'error'; if (project.container_count > 0 && project.running_count === project.container_count) return 'running'; if (project.running_count > 0) return 'warning'; return 'stopped' }
 function composeSummary(project: DockerComposeProject) { return `${project.running_count}/${project.container_count} running${project.error_count ? ` · ${project.error_count} erro` : ''}` }
 function dockerComposeServiceStatus(service: DockerComposeService): { tone: 'running' | 'warning' | 'error' | 'stopped'; label: string; detail: string } {

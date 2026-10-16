@@ -76,8 +76,7 @@
 /* Tool-window titles and icon hit areas share a predictable optical scale. */
 .workspace-side-drawer .agent-drawer-heading strong { font-size: var(--panel-title-size); font-weight: 650; }
 .workspace-side-drawer .agent-drawer-heading .panel-kicker { font-size: calc(8px * var(--ui-font-scale)); }
-.workspace-side-drawer .agent-drawer-icon,
-.agent-project-explorer .agent-drawer-icon {
+.workspace-side-drawer .agent-drawer-icon {
   width: var(--toolbar-hit);
   height: var(--toolbar-hit);
   flex-basis: var(--toolbar-hit);
@@ -86,15 +85,7 @@
   padding: 0;
   border-radius: var(--radius-control);
 }
-.workspace-side-drawer .agent-drawer-icon > svg,
-.agent-project-explorer .agent-drawer-icon > svg { width: var(--icon-sm); height: var(--icon-sm); }
-.agent-tree-chevron { width: 16px; height: 20px; display: inline-grid; place-items: center; }
-.agent-tree-chevron > svg { width: var(--icon-xs); height: var(--icon-xs); }
-.agent-tree-row .file-glyph > svg { width: 15px; height: 15px; }
-.agent-tree-name { font-size: var(--ui-text-size); }
-.agent-tree-git-count,
-.agent-tree-git-status { font-size: var(--ui-meta-size); }
-
+.workspace-side-drawer .agent-drawer-icon > svg { width: var(--icon-sm); height: var(--icon-sm); }
 .terminal-surface-actions button,
 .terminal-add-tab {
   width: var(--toolbar-hit);
@@ -135,15 +126,9 @@
   white-space: nowrap;
 }
 .terminal-overflow-menu button:hover { background: var(--theme-hover); color: var(--theme-text); }
-.terminal-overflow-menu button > svg { width: var(--icon-xs); height: var(--icon-xs); }
+.terminal-overflow-menu button > svg { width: var(--icon-xs); height: var(--icon-xs); }/* Docker: module title carries hierarchy; controls remain compact and neutral. */
 
-/* Docker: module title carries hierarchy; controls remain compact and neutral. */
-.docker-services-header { min-height: 48px; padding: 6px 8px 6px 12px; background: var(--theme-surface); }
-.docker-services-header strong { font-size: calc(11.5px * var(--docker-font-scale)); font-weight: 650; }
-.docker-services-header small { font-size: calc(7.8px * var(--docker-font-scale)); }
-.docker-services-header-actions button,
 .docker-logs-toolbar button { min-width: var(--toolbar-hit); height: var(--toolbar-hit); border-radius: var(--radius-control); }
-.docker-services-header-actions button > svg { width: var(--icon-sm); height: var(--icon-sm); }
 .docker-container-actions button { height: 29px; font-size: calc(8.3px * var(--docker-font-scale)); }
 .docker-container-actions button > svg { width: var(--icon-xs); height: var(--icon-xs); }
 .docker-resource-filter { min-height: 38px; padding-block: 4px; }

@@ -9,6 +9,8 @@ import { BrowserViewport } from './BrowserViewport'
 import { BrowserLinkViewport } from './BrowserLinkViewport'
 import { agentForChat, browserHasPage } from './browserMonitorModel'
 import { BrowserMonitorPolicies } from './BrowserMonitorPolicies'
+import { MonitorHeader, MonitorLocation, monitorGridColumns, useMonitorLayout } from './presentation'
+import { EmptyState } from '../../presentation/workbench'
 
 const requestedAgent = () => { try { return new URLSearchParams(window.location.search).get('agent') || '' } catch { return '' } }
 
@@ -18,8 +20,8 @@ export function BrowserMonitor() {
   const [selectedId, setSelectedId] = useState(requestedAgent)
   const [policiesOpen, setPoliciesOpen] = useState(false)
   const [error, setError] = useState('')
-  const [listOpen, setListOpen] = useState(true)
-  const [detailsOpen, setDetailsOpen] = useState(true)
+  const policyPanelOpen = policiesOpen && Boolean(runtime)
+  const { listOpen, detailsOpen, focused, toggleList, toggleDetails, toggleFocus } = useMonitorLayout(policyPanelOpen)
   const [explorerOpen, setExplorerOpen] = useState(false)
   const [selectedLink, setSelectedLink] = useState<BrowserMonitorChat>()
 
@@ -58,31 +60,20 @@ export function BrowserMonitor() {
   const attention = Boolean(runtime?.provider?.paused || runtime?.worker_pause?.paused)
   // The policies column shares the row with the real browser, which shrinks
   // instead of being covered: nothing can be drawn over the native view.
-  const columns = [listOpen ? 'minmax(220px,19vw)' : '44px', detailsOpen ? 'minmax(270px,24vw)' : '44px', 'minmax(0,1fr)', ...(policiesOpen && runtime ? ['minmax(300px,25vw)'] : [])].join(' ')
+  const columns = monitorGridColumns(window.innerWidth, { list: listOpen, details: detailsOpen }, policyPanelOpen)
 
-  return <main className="flex h-screen min-h-[520px] flex-col overflow-hidden bg-[#0a111b] font-sans text-slate-100">
-    <header className="flex min-h-[88px] items-center justify-between gap-4 border-b border-white/[.07] bg-[#0d1622] px-7">
-      <div className="flex items-center gap-4"><span className="grid h-10 w-10 place-items-center rounded-xl border border-cyan-300/20 bg-cyan-300/[.08] text-cyan-300"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2.5" y="4" width="19" height="15" rx="2.5" stroke="currentColor" strokeWidth="1.5"/><path d="M2.5 9h19M8 22h8M12 19v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg></span><div><p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300">Wharnex · Runtime ChatGPT</p><h1 className="mt-1 text-[20px] font-semibold tracking-tight text-white">Instâncias dos navegadores</h1></div></div>
-      <div className="flex items-center gap-2">
-        <span className="hidden items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[.06] px-3 py-1.5 text-[11px] font-medium text-emerald-300 sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />{working} em trabalho</span><span className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1.5 text-[11px] font-medium text-slate-300">{total} instâncias</span>
-        <span className="mx-1 h-5 w-px bg-white/[.08]" aria-hidden="true" />
-        <button type="button" aria-expanded={policiesOpen} aria-controls="browser-monitor-policies" title={attention ? 'Políticas · há suspensões ativas' : 'Políticas do runtime'} disabled={!runtime} onClick={() => setPoliciesOpen((open) => !open)}
-          className={`relative inline-flex h-8 items-center gap-2 rounded-lg border px-3 text-[12px]! font-medium! leading-none! transition ${policiesOpen ? 'border-cyan-400/45 bg-cyan-400/[.1]! text-cyan-200' : 'border-white/[.12] bg-transparent! text-slate-300 hover:border-cyan-400/40 hover:text-cyan-200'}`}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><circle cx="10" cy="4.5" r="1.6" stroke="currentColor" strokeWidth="1.4"/><circle cx="6" cy="11.5" r="1.6" stroke="currentColor" strokeWidth="1.4"/></svg>
-          Políticas
-          {attention ? <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full border-2 border-[#0d1622] bg-amber-400" aria-hidden="true" /> : null}
-        </button>
-      </div>
-    </header>
+  return <main className="flex h-screen min-h-0 flex-col overflow-hidden bg-whx-bg font-sans text-whx-text">
+    <MonitorHeader working={working} total={total} attention={attention} available={Boolean(runtime)} policiesOpen={policiesOpen} onPolicies={() => setPoliciesOpen((open) => !open)} focused={focused} onFocus={() => { toggleFocus(); setPoliciesOpen(false) }}/>
     <BrowserMonitorLegend />
-    {error ? <p className="border-b border-rose-400/20 bg-rose-400/[.06] px-7 py-2 text-[12px] text-rose-200" role="alert">{error}</p> : null}
-    <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: columns }}>
-      <BrowserMonitorList agents={runtime?.agents || []} selectedId={selected?.id || ''} onSelect={(id) => { setSelectedLink(undefined); setSelectedId(id) }} selectedLinkKey={selectedLink?.key || ''} onSelectLink={setSelectedLink} onInstancesView={() => setSelectedLink(undefined)} expanded={listOpen} onToggle={() => setListOpen((open) => !open)} />
-      <BrowserMonitorDetails agent={detailsAgent} link={selectedLink} expanded={detailsOpen} onToggle={() => setDetailsOpen((open) => !open)} onExplorerOpenChange={setExplorerOpen} />
-      <section className="flex min-h-0 flex-col bg-[#0b1420]" aria-label="Navegador da instância">
-        {selectedLink && !linkedAgent ? <BrowserLinkViewport key={selectedLink.key} chat={selectedLink} suspended={explorerOpen} /> : selected ? <BrowserViewport key={selected.id} agent={selected} suspended={explorerOpen} /> : <div className="grid flex-1 place-items-center text-[13px] text-slate-400">Selecione uma instância para acompanhar.</div>}
+    {error ? <p className="border-b border-whx-danger bg-[color-mix(in_srgb,var(--theme-danger)_10%,transparent)] px-7 py-2 text-whx-label text-whx-danger" role="alert">{error}</p> : null}
+    <div className="grid min-h-0 min-w-0 flex-1" style={{ gridTemplateColumns: columns }}>
+      <BrowserMonitorList agents={runtime?.agents || []} selectedId={selected?.id || ''} onSelect={(id) => { setSelectedLink(undefined); setSelectedId(id) }} selectedLinkKey={selectedLink?.key || ''} onSelectLink={setSelectedLink} onInstancesView={() => setSelectedLink(undefined)} expanded={listOpen} onToggle={toggleList} />
+      <BrowserMonitorDetails agent={detailsAgent} link={selectedLink} expanded={detailsOpen} onToggle={toggleDetails} onExplorerOpenChange={setExplorerOpen} />
+      <section className="flex min-h-0 min-w-0 flex-col bg-whx-bg" aria-label="Navegador da instância">
+        <MonitorLocation url={selectedLink?.url || selected?.browser.url} loading={selected?.browser.loading} label={selectedLink ? 'Conversa' : selected?.label}/>
+        {selectedLink && !linkedAgent ? <BrowserLinkViewport key={selectedLink.key} chat={selectedLink} suspended={explorerOpen} /> : selected ? <BrowserViewport key={selected.id} agent={selected} suspended={explorerOpen} /> : <EmptyState icon="monitor" title="Selecione uma instância" description="Escolha um Supervisor, Worker ou conversa na lista para acompanhar o navegador."/>}
       </section>
-      {policiesOpen && runtime ? <div id="browser-monitor-policies" className="contents"><BrowserMonitorPolicies runtime={runtime} onRuntime={setRuntime} onError={setError} onClose={() => setPoliciesOpen(false)} /></div> : null}
+      {policyPanelOpen && runtime ? <div id="browser-monitor-policies" className="contents"><BrowserMonitorPolicies runtime={runtime} onRuntime={setRuntime} onError={setError} onClose={() => setPoliciesOpen(false)} /></div> : null}
     </div>
   </main>
 }

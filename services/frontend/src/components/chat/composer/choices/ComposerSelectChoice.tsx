@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
-export const choiceChrome = 'relative inline-flex h-[29px] shrink-0 items-center gap-1 rounded-[var(--radius-popover)] border border-whx-border-soft bg-whx-muted px-1.5 text-whx-soft transition-colors hover:border-whx-border focus-within:border-whx-accent'
-export const choiceControl = 'h-[23px]! min-h-0! w-auto! min-w-0! cursor-pointer appearance-none rounded-[var(--radius-control)]! border-0! bg-transparent! py-0! pl-0.5! pr-3.5! font-sans text-[calc(8.5px*var(--ui-font-scale))]! font-bold! text-whx-soft! outline-none! disabled:cursor-default disabled:opacity-50'
+export const choiceChrome = 'relative inline-flex min-h-8 max-w-full shrink-0 items-center gap-1.5 rounded-md border border-whx-border-soft bg-whx-surface px-2 text-whx-soft transition-colors motion-reduce:transition-none hover:border-whx-border focus-within:ring-2 focus-within:ring-whx-accent'
+export const choiceControl = 'h-7! min-h-0! w-auto! min-w-0! max-w-[210px]! cursor-pointer appearance-none rounded-md! border-0! bg-transparent! py-0! pl-0.5! pr-4! font-sans text-whx-label! font-medium! text-whx-soft! outline-none! disabled:cursor-default disabled:opacity-50'
 
 export function ComposerSelectChoice<Value extends string>({ label, title, icon, value, options, disabled, onChange }: {
   label: string

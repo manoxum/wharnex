@@ -153,4 +153,35 @@ describe('chat-owned model choice', () => {
     expect(document.activeElement).toBe(trigger)
     expect(screen.queryByRole('listbox')).toBeNull()
   })
+
+  it('repositions and constrains the model menu when the window becomes compact', async () => {
+    const originalWidth = window.innerWidth
+    const originalHeight = window.innerHeight
+    let bounds = { top: 400, bottom: 432, left: 700, right: 740 }
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1000 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 })
+    try {
+      render(<ComposerModelControl workspaceChatId="chat-a" />)
+      const trigger = screen.getByRole('button', { name: 'Modelo do ChatGPT' })
+      vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => bounds as DOMRect)
+      fireEvent.click(trigger)
+      const listbox = await screen.findByRole('listbox', { name: 'Modelos disponíveis neste chat' })
+      const popover = listbox.parentElement!
+      expect(popover.className).toContain('bottom-full mb-1 left-0')
+      expect(popover.style.maxWidth).toBe('288px')
+
+      bounds = { top: 140, bottom: 168, left: 150, right: 190 }
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: 240 })
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 260 })
+      fireEvent(window, new Event('resize'))
+      await waitFor(() => {
+        expect(popover.className).toContain('bottom-full mb-1 right-0')
+        expect(popover.style.maxWidth).toBe('182px')
+        expect(popover.style.maxHeight).toBe('128px')
+      })
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
+    }
+  })
 })

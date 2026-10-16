@@ -44,7 +44,7 @@ describe('OrchestratorWorkspace notification routing', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
 
     expect(api.orchestratorOverview).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('button', { name: /Tasks/ }).className).toContain('active')
+    expect(screen.getByRole('tab', { name: /Tasks/ }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText(task.id).textContent).toBe(task.id)
   })
 })

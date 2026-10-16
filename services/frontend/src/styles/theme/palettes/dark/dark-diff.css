@@ -18,7 +18,6 @@
 :root[data-theme='dark'] .system-note span,
 :root[data-theme='dark'] .agent-drawer-empty,
 :root[data-theme='dark'] .agent-explorer-search,
-:root[data-theme='dark'] .editor-shortcuts,
 :root[data-theme='dark'] .explorer-empty,
 :root[data-theme='dark'] .terminal-hint,
 :root[data-theme='dark'] .desktop-browser-address,
@@ -30,7 +29,6 @@
 :root[data-theme='dark'] .message-tools button,
 :root[data-theme='dark'] .icon-button.light,
 :root[data-theme='dark'] .tree-row,
-:root[data-theme='dark'] .agent-tree-row,
 :root[data-theme='dark'] .terminal-controls,
 :root[data-theme='dark'] .execution-log-line time { color: #b8b8b8; }
 :root[data-theme='dark'] .system-note strong,
@@ -81,10 +79,6 @@
 }
 :root[data-theme='dark'] .composer-scroll-area,
 :root[data-theme='dark'] .composer textarea { background: #171717; }
-:root[data-theme='dark'] .composer-footer {
-  border-color: #383838;
-  background: #212121;
-}
 :root[data-theme='dark'] .composer-comment-state,
 :root[data-theme='dark'] .prepared-draft {
   border-color: #4d4d4d;
@@ -175,8 +169,7 @@
 :root[data-theme='dark'] .bundle-readme-body { background: #171717; }
 
 :root[data-theme='dark'] .settings-security-note,
-:root[data-theme='dark'] .context-status.included,
-:root[data-theme='dark'] .project-storage-row.active { background: #292929; }
+:root[data-theme='dark'] .context-status.included { background: #292929; }
 :root[data-theme='dark'] .change-summary-icon,
 :root[data-theme='dark'] .iteration-artifacts i,
 :root[data-theme='dark'] .notice-mark { background: #383838; color: #cecece; }

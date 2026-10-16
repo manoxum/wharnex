@@ -1,3 +1,5 @@
+import { ExecutionQueue, TaskOverview } from './operations'
+import { EmptyState, Button } from '../../presentation/workbench'
 import { ProjectTaskTabs } from './ProjectTaskTabs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatAgentTask, HarnessEvent, OrchestratorTaskRun, Session } from '../../../types'
@@ -181,80 +183,18 @@ export function ProjectTasksDrawer({ projectPath, chats, savedChats, archivedCha
     void loadHistoryPage(target, page.loaded ? page.nextCursor : '', page.loaded)
   }
 
-  return <section className="project-tasks-drawer" aria-label="Tarefas do projeto">
-    <header className="agent-drawer-heading project-task-heading"><div><span className="panel-kicker">Centro operacional</span><strong>Tarefas do projeto</strong><small>Uma visão única de chats, workers, traduções, releases, orquestração e execuções.</small></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar tarefas"><Icon name="close" size={13}/></button></header>
-    <div className="project-task-dashboard" aria-label="Resumo operacional">
-      <TaskMetric label="Ativas" value={counts.queue} icon="list"/>
-      <TaskMetric label="Em execução" value={runningCount} icon="play"/>
-      <TaskMetric label="Atenção" value={attentionCount} icon="alert" danger={attentionCount > 0}/>
-      <TaskMetric label="Concluídas" value={counts.completed} icon="check"/>
-    </div>
-    <div className="project-task-toolbar">
-      <label className="project-task-search"><Icon name="search" size={13}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar tarefas, IDs e conteúdo" aria-label="Pesquisar tarefas"/></label>
-      <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as 'all' | ProjectTaskSource)} aria-label="Filtrar tarefas por origem">
-        <option value="all">Todas as origens</option>
-        <option value="chat">Chats</option><option value="worker">Workers</option><option value="orchestrator">Orquestração</option><option value="translation">Traduções</option><option value="release">Releases</option><option value="todo">TODO</option><option value="system">Sistema</option>
-      </select>
-    </div>
+  return <section className="project-tasks-drawer !flex !min-h-0 !flex-1 !flex-col !overflow-hidden !bg-whx-bg" aria-label="Tarefas do projeto">
+    <TaskOverview counts={counts} runningCount={runningCount} attentionCount={attentionCount} query={query} source={sourceFilter} onQuery={setQuery} onSource={(value) => setSourceFilter(value as typeof sourceFilter)} onClose={onClose}/>
     <ProjectTaskTabs value={tab} onChange={setTab} counts={counts}/>
     <ProjectTaskListPanel>
-      {tab === 'queue' ? <IntegratedExecutionQueue items={executionFIFO} onError={onError}/> : null}
+      {tab === 'queue' ? <ExecutionQueue items={executionFIFO} onError={onError}/> : null}
       {initialLoading ? <ContentSkeleton label={tab === 'queue' ? 'A carregar tarefas em curso' : `A carregar tarefas ${tab === 'completed' ? 'concluídas' : 'arquivadas'}`} rows={6}/> : visible.map((item) => <ProjectTaskCard key={item.key} item={item} currentSession={currentSession} activeChatId={activeChatId} activeEvents={activeEvents} onSessionLoaded={rememberSession} onGoToChat={onGoToChat}/>)}
-      {!initialLoading && !visible.length && !panelError ? <div className="agent-drawer-empty"><strong>{filtering ? 'Nenhuma tarefa corresponde ao filtro nos itens carregados.' : historyPage?.hasMore ? `Ainda não há tarefas ${tab === 'completed' ? 'concluídas' : 'arquivadas'} nesta página.` : emptyTitle(tab)}</strong><span>{filtering ? 'Altere a pesquisa ou a origem, ou carregue mais histórico quando disponível.' : historyPage?.hasMore ? 'Carregue a próxima página para continuar a procurar sem perder os itens já obtidos.' : emptyDetail(tab)}</span></div> : null}
-      {panelError ? <div className="agent-drawer-empty"><strong>Não foi possível atualizar esta vista.</strong><span>{panelError}</span><button type="button" className="secondary-button" disabled={pageLoading} onClick={() => tab === 'queue' ? void loadActiveTasks(true) : retryHistory(tab)}><Icon name="refresh" size={12}/> Tentar novamente</button></div> : null}
+      {!initialLoading && !visible.length && !panelError ? <EmptyState icon={filtering ? 'search' : 'list'} title={filtering ? 'Nenhuma tarefa corresponde ao filtro nos itens carregados.' : historyPage?.hasMore ? `Ainda não há tarefas ${tab === 'completed' ? 'concluídas' : 'arquivadas'} nesta página.` : emptyTitle(tab)} description={filtering ? 'Altere a pesquisa ou a origem, ou carregue mais histórico quando disponível.' : historyPage?.hasMore ? 'Carregue a próxima página para continuar a procurar sem perder os itens já obtidos.' : emptyDetail(tab)} action={filtering ? <Button onClick={() => { setQuery(''); setSourceFilter('all') }}>Limpar filtros</Button> : onGoToChat ? <Button icon="chatgpt" onClick={() => onGoToChat(activeChatId, currentSession.id)}>Ir para a conversa</Button> : undefined}/> : null}
+      {panelError ? <EmptyState icon="alert" title="Não foi possível atualizar esta vista." description={panelError} action={<Button icon="refresh" disabled={pageLoading} onClick={() => tab === 'queue' ? void loadActiveTasks(true) : retryHistory(tab)}>Tentar novamente</Button>}/> : null}
       {pageLoading ? <ContentSkeleton label="A carregar mais tarefas" rows={2} compact/> : null}
       {historyPage?.hasMore && !historyPage.loading ? <div className="agent-drawer-empty"><button type="button" className="secondary-button" onClick={() => void loadHistoryPage(tab as HistoricalProjectTaskTab, historyPage.nextCursor, true)}><Icon name="refresh" size={12}/> Carregar mais {tab === 'completed' ? 'concluídas' : 'arquivadas'}</button></div> : null}
     </ProjectTaskListPanel>
   </section>
-}
-
-function TaskMetric({ label, value, icon, danger = false }: { label: string; value: number; icon: 'list' | 'play' | 'alert' | 'check'; danger?: boolean }) {
-  return <div className={`project-task-metric ${danger ? 'danger' : ''}`}><span><Icon name={icon} size={12}/>{label}</span><b>{value}</b></div>
-}
-
-function IntegratedExecutionQueue({ items, onError }: { items: ExecutionFIFOItem[]; onError?: (message: string) => void }) {
-  const [concurrency, setConcurrency] = useState<number>()
-  const [max, setMax] = useState(1)
-  const [busy, setBusy] = useState(false)
-  const running = items.filter((item) => item.status === 'running' || item.status === 'submitting')
-  const waiting = items.filter((item) => item.status === 'queued')
-  const recent = items.filter((item) => item.status === 'completed' || item.status === 'failed')
-
-  useEffect(() => {
-    let active = true
-    api.executionConcurrency().then((value) => { if (active) { setConcurrency(value.concurrency); setMax(value.max) } }).catch(() => undefined)
-    return () => { active = false }
-  }, [])
-
-  const apply = async (next: number) => {
-    setBusy(true)
-    try {
-      const value = await api.updateExecutionConcurrency(next)
-      setConcurrency(value.concurrency); setMax(value.max)
-    } catch (error) {
-      onError?.(error instanceof Error ? error.message : 'Não foi possível alterar a concorrência')
-    } finally { setBusy(false) }
-  }
-
-  return <section className="project-task-fifo" aria-label="Execução FIFO integrada">
-    <header><div><span className="project-task-source source-system"><Icon name="terminal" size={11}/> Motor de execução</span><strong>Execução FIFO</strong><small>A ordem de execução e o limite de concorrência agora vivem junto das tarefas.</small></div><div className="project-task-fifo-summary"><span><b>{running.length}</b> ativas</span><span><b>{waiting.length}</b> à espera</span><span><b>{recent.length}</b> recentes</span></div></header>
-    {concurrency !== undefined ? <div className="project-task-concurrency"><span><strong>Execuções simultâneas</strong><small>Limite por projeto; cada slot reserva um clone.</small></span><label><span className="sr-only">Execuções simultâneas por projeto</span><select aria-label="Execuções simultâneas por projeto" value={concurrency} disabled={busy} onChange={(event) => void apply(Number(event.target.value))}>{Array.from({ length: max }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value}</option>)}</select><b>/ {max}</b></label></div> : null}
-    <div className="project-task-fifo-list">{items.length ? items.map((item) => <ExecutionQueueCard key={item.key} item={item}/>) : <p>Sem execuções ativas ou recentes. A próxima entrada FIFO aparecerá aqui.</p>}</div>
-  </section>
-}
-
-function ExecutionQueueCard({ item }: { item: ExecutionFIFOItem }) {
-  const state = executionQueueState(item)
-  const timestamp = item.completedAt || item.addedAt
-  return <article className={`project-task-fifo-card ${item.status}`}><span className="project-task-fifo-icon"><Icon name={state.icon} size={12}/></span><div><strong>{item.chatTitle}</strong><span><code>{item.planId}</code>{item.status === 'queued' ? <i>#{String(item.position || 1).padStart(2, '0')}</i> : null}</span><small><b>{state.label}</b> · {state.detail}</small></div><time dateTime={new Date(timestamp).toISOString()}>{new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></article>
-}
-
-function executionQueueState(item: ExecutionFIFOItem): { label: string; detail: string; icon: 'play' | 'check' | 'close' | 'terminal' } {
-  if (item.status === 'running') return { label: 'Em execução', detail: 'Processamento ativo neste momento', icon: 'play' }
-  if (item.status === 'submitting') return { label: 'A iniciar', detail: 'A reservar o próximo slot de execução', icon: 'terminal' }
-  if (item.status === 'queued') return { label: 'Na fila', detail: 'Em espera, com a ordem FIFO preservada', icon: 'terminal' }
-  if (item.status === 'completed') return { label: 'Concluída', detail: 'Execução terminada com sucesso', icon: 'check' }
-  return { label: 'Com erro', detail: 'Execução terminada com falha', icon: 'close' }
 }
 
 function ProjectTaskCard({ item, currentSession, activeChatId, activeEvents, onSessionLoaded, onGoToChat }: { item: ProjectTask; currentSession: Session; activeChatId: string; activeEvents: HarnessEvent[]; onSessionLoaded: (session: Session) => void; onGoToChat?: (chatId?: string, sessionId?: string) => void }) {

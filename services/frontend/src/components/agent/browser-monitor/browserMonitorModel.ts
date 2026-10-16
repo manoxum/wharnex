@@ -14,17 +14,17 @@ export function activeTask(agent: DesktopAgentRuntimeAgent) {
 export type OperationalState = 'idle' | 'waiting' | 'loading' | 'working' | 'writing' | 'listening' | 'chat-empty' | 'paused' | 'error' | 'stopped' | 'draining'
 
 export const stateLegend: { key: OperationalState; label: string; dot: string }[] = [
-  { key: 'idle', label: 'Ocioso', dot: 'bg-slate-400' },
-  { key: 'waiting', label: 'Na fila / a aguardar', dot: 'bg-amber-400' },
-  { key: 'loading', label: 'A abrir conversa', dot: 'bg-yellow-400' },
-  { key: 'working', label: 'A preparar / validar', dot: 'bg-emerald-400' },
-  { key: 'writing', label: 'A enviar ao GPT', dot: 'bg-violet-400' },
-  { key: 'listening', label: 'GPT a processar', dot: 'bg-cyan-400' },
-  { key: 'chat-empty', label: 'Chat sem jobs', dot: 'bg-blue-400' },
-  { key: 'paused', label: 'Suspenso', dot: 'bg-amber-300' },
-  { key: 'error', label: 'Com erro', dot: 'bg-rose-400' },
-  { key: 'stopped', label: 'Parado', dot: 'bg-slate-600' },
-  { key: 'draining', label: 'A terminar', dot: 'bg-orange-400' },
+  { key: 'idle', label: 'Ocioso', dot: 'bg-whx-bg' },
+  { key: 'waiting', label: 'Na fila / a aguardar', dot: 'bg-whx-warning' },
+  { key: 'loading', label: 'A abrir conversa', dot: 'bg-whx-warning' },
+  { key: 'working', label: 'A preparar / validar', dot: 'bg-whx-success' },
+  { key: 'writing', label: 'A enviar ao GPT', dot: 'bg-whx-accent' },
+  { key: 'listening', label: 'GPT a processar', dot: 'bg-whx-accent' },
+  { key: 'chat-empty', label: 'Chat sem jobs', dot: 'bg-whx-accent' },
+  { key: 'paused', label: 'Suspenso', dot: 'bg-whx-warning' },
+  { key: 'error', label: 'Com erro', dot: 'bg-whx-danger' },
+  { key: 'stopped', label: 'Parado', dot: 'bg-whx-bg' },
+  { key: 'draining', label: 'A terminar', dot: 'bg-whx-warning' },
 ]
 
 const phaseState: Record<DesktopAgentRuntimeActivityPhase, OperationalState> = {
@@ -51,7 +51,7 @@ export function operationalState(agent: DesktopAgentRuntimeAgent): { key: Operat
 }
 
 export function activityLabel(agent: DesktopAgentRuntimeAgent) { return operationalState(agent).label }
-export function stateDot(key: OperationalState) { return stateLegend.find((state) => state.key === key)?.dot || 'bg-slate-400' }
+export function stateDot(key: OperationalState) { return stateLegend.find((state) => state.key === key)?.dot || 'bg-whx-bg' }
 
 export function labelPath(path: string) { return path.split('/').filter(Boolean).at(-1) || path || '—' }
 

@@ -1,15 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type * as Monaco from 'monaco-editor'
-import { api } from '../../../lib/transport/http/api'
 import { editorLanguageForPath } from '../../../lib/editor/runtime/editorLanguage'
 import { activeMonacoTheme, configureMonaco, monaco, useMonacoRuntime } from '../../../lib/editor/runtime/monaco'
-import { buildDiffDocument, type DiffDocument } from '../../../lib/editor/runtime/unifiedDiff'
 import { subscribeUIPreferences, workspaceEditorFontSize } from '../../../lib/workspace/preferences/uiPreferences'
 import type { ChatChangeFile } from '../../../types'
-import { Icon } from '../../presentation/chrome/Icon'
+import { DiffToolbar } from './diff/DiffToolbar'
+import { useDiffDocument } from './diff/useDiffDocument'
 import { ContentSkeleton } from '../../presentation/chrome/Skeleton'
 
-type ChangeDiffEditorProps = { sessionId: string; file: ChatChangeFile; fragmentOnly?: boolean }
+type ChangeDiffEditorProps = { sessionId: string; file: ChatChangeFile; fragmentOnly?: boolean; afterLabel?: string }
 
 // The surface below dereferences `monaco` from several effects, so it is only
 // mounted once the runtime is actually loaded. A Git diff can be the first
@@ -21,31 +20,21 @@ export function ChangeDiffEditor(props: ChangeDiffEditorProps) {
   return <ChangeDiffSurface {...props}/>
 }
 
-function ChangeDiffSurface({ sessionId, file, fragmentOnly = false }: ChangeDiffEditorProps) {
+function ChangeDiffSurface({ sessionId, file, fragmentOnly = false, afterLabel }: ChangeDiffEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null)
   type DiffLineChange = { modifiedStartLineNumber: number; originalStartLineNumber: number }
 
   const changes = useRef<DiffLineChange[]>([])
-  const [document, setDocument] = useState<DiffDocument>()
+  const document = useDiffDocument(sessionId, file, fragmentOnly)
   const [sideBySide, setSideBySide] = useState(true)
   const [activeChange, setActiveChange] = useState(0)
   const [changeCount, setChangeCount] = useState(0)
 
   useEffect(() => {
-    let cancelled = false
-    setDocument(undefined)
     setActiveChange(0)
     setChangeCount(0)
     changes.current = []
-    if (fragmentOnly) {
-      setDocument(buildDiffDocument(file.diff))
-      return () => { cancelled = true }
-    }
-    api.readFile(sessionId, file.path)
-      .then((current) => { if (!cancelled) setDocument(buildDiffDocument(file.diff, current.content)) })
-      .catch(() => { if (!cancelled) setDocument(buildDiffDocument(file.diff)) })
-    return () => { cancelled = true }
   }, [sessionId, file.path, file.diff, fragmentOnly])
 
   useLayoutEffect(() => {
@@ -59,7 +48,7 @@ function ChangeDiffSurface({ sessionId, file, fragmentOnly = false }: ChangeDiff
       automaticLayout: true,
       readOnly: true,
       originalEditable: false,
-      renderSideBySide: true,
+      renderSideBySide: sideBySide,
       useInlineViewWhenSpaceIsLimited: false,
       enableSplitViewResizing: true,
       renderIndicators: true,
@@ -114,25 +103,11 @@ function ChangeDiffSurface({ sessionId, file, fragmentOnly = false }: ChangeDiff
     setActiveChange(nextIndex + 1)
   }
 
-  return <div className="change-diff-shell">
-    <div className="change-diff-toolbar">
-      <div className="change-diff-legend" role="group" aria-label="Comparação antes e depois">
-        <span className="diff-before"><small>Antes</small><strong>Versão anterior</strong></span>
-        <span className="diff-after"><small>Depois</small><strong>Versão aplicada</strong></span>
-        {document && !document.complete && <span className="diff-fragment-badge">excerto do patch</span>}
-      </div>
-      <div className="change-diff-controls">
-        <button type="button" className="icon-button light" onClick={() => navigate(-1)} disabled={!changeCount} title="Alteração anterior" aria-label="Alteração anterior"><Icon name="arrow-up" size={12}/></button>
-        <span className="change-diff-position">{changeCount ? `${activeChange}/${changeCount}` : '0/0'}</span>
-        <button type="button" className="icon-button light" onClick={() => navigate(1)} disabled={!changeCount} title="Alteração seguinte" aria-label="Alteração seguinte"><Icon name="arrow-down" size={12}/></button>
-        <div className="diff-layout-toggle" aria-label="Modo do diff">
-          <button type="button" className={sideBySide ? 'active' : ''} onClick={() => setSideBySide(true)}>Lado a lado</button>
-          <button type="button" className={!sideBySide ? 'active' : ''} onClick={() => setSideBySide(false)}>Inline</button>
-        </div>
-      </div>
-    </div>
+  return <div className="change-diff-shell flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-whx-bg">
+    <DiffToolbar afterLabel={afterLabel} complete={document?.complete} sideBySide={sideBySide} activeChange={activeChange} changeCount={changeCount} onNavigate={navigate} onLayout={setSideBySide}/>
+
     {document
-      ? <div className="change-diff-editor" ref={host} aria-label={`Comparação de ${file.path}`} />
-      : <div className="change-diff-loading"><span className="lamp blinking"/>A preparar comparação…</div>}
+      ? <div className="change-diff-editor min-h-0 min-w-0 flex-1" ref={host} aria-label={`Comparação de ${file.path}`} />
+      : <div className="min-h-0 flex-1"><p className="!m-0 px-4 pt-4 !text-whx-caption !text-whx-faint">A preparar comparação…</p><ContentSkeleton label="A preparar comparação…" rows={6}/></div>}
   </div>
 }

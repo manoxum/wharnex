@@ -1,5 +1,7 @@
-import { GitFileState } from './EditorGitState'
+import { useEditorNavigation } from './search/useEditorNavigation'
 import { EditorTabs } from './EditorTabs'
+import { useEditorDocumentReorder } from './tabs'
+import { GitFileState } from './EditorGitState'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, APIError } from '../../../lib/transport/http/api'
 import { editorDisplayLanguage } from '../../../lib/editor/runtime/editorLanguage'
@@ -16,6 +18,8 @@ import { InternalWindow } from '../../workspace/window/InternalWindow'
 import { ArtifactPreview } from '../../artifacts/explorer/ArtifactPreview'
 import { ChangeDiffEditor } from './ChangeDiffEditor'
 import { EditorSearchPalette, type EditorSearchMode } from './EditorSearchPalette'
+import { EditorContextBar } from './context'
+import { EditorWelcomePanel } from './EditorWelcomePanel'
 
 type EditorDocument = WorkspaceFile & { draft: string }
 type Cursor = { line: number; column: number }
@@ -23,12 +27,13 @@ type WorkspaceMutation = { kind: 'create'; path: string } | { kind: 'rename'; fr
 
 const EDITOR_AUTOSAVE_DELAY_MS = 650
 
-export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0, hiddenPaths = [], surfaceMode = false, minimalSurface = false, active = true, onDetachFile, onSplitFile, onLocateFile }: {
+export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, openNonce = 0, openLocation, hiddenPaths = [], surfaceMode = false, minimalSurface = false, active = true, onDetachFile, onSplitFile, onLocateFile }: {
   session: Session
   onError: (message: string) => void
   onRunInTerminal: (input: TerminalRunInput) => void
   openPath?: string
   openNonce?: number
+  openLocation?: { line: number; column: number }
   hiddenPaths?: string[]
   surfaceMode?: boolean
   minimalSurface?: boolean
@@ -39,10 +44,10 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
 }) {
   const [files, setFiles] = useState<FileEntry[]>([])
   const [documents, setDocuments] = useState<EditorDocument[]>([])
+  const reorderDocuments = useEditorDocumentReorder(setDocuments)
   const documentsRef = useRef<EditorDocument[]>([])
   const sessionIDRef = useRef(session.id)
   sessionIDRef.current = session.id
-  const runMenuRef = useRef<HTMLDetailsElement>(null)
   const [activePath, setActivePath] = useState<string>()
   const [editorMemoryReady, setEditorMemoryReady] = useState(false)
   const [savingPaths, setSavingPaths] = useState<Set<string>>(new Set())
@@ -59,7 +64,6 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const [dockerOverview, setDockerOverview] = useState<DockerOverview>()
   const [searchMode, setSearchMode] = useState<EditorSearchMode>()
   const [revealLocation, setRevealLocation] = useState<{ path: string; line: number; column: number; nonce: number }>()
-  const lastShiftAtRef = useRef(0)
   // This workspace stays mounted (CSS-hidden) whenever another mode is
   // active, so an inline object literal here got a new identity on every one
   // of its many re-renders while a diff was open - and ChangeDiffEditor tears
@@ -93,21 +97,6 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   const directRunOption = runOptions.length === 1 && runOptions[0].line === undefined ? runOptions[0] : undefined
 
   documentsRef.current = documents
-
-  useEffect(() => {
-    const closeRunMenu = (event: Event) => {
-      const menu = runMenuRef.current
-      if (!menu?.open) return
-      if (event.type === 'keydown' && (event as globalThis.KeyboardEvent).key === 'Escape') { menu.open = false; return }
-      if (event.type === 'pointerdown' && event.target instanceof Node && !menu.contains(event.target)) menu.open = false
-    }
-    document.addEventListener('pointerdown', closeRunMenu)
-    document.addEventListener('keydown', closeRunMenu)
-    return () => {
-      document.removeEventListener('pointerdown', closeRunMenu)
-      document.removeEventListener('keydown', closeRunMenu)
-    }
-  }, [])
 
   const refreshFiles = useCallback(async () => {
     try { setFiles((await api.listFiles(session.id)).files) }
@@ -222,28 +211,6 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     return () => window.removeEventListener('beforeunload', guard)
   }, [dirtyCount])
 
-  useEffect(() => {
-    if (!active) return
-    const onShortcut = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
-        event.preventDefault()
-        event.stopPropagation()
-        setSearchMode('project')
-        return
-      }
-      if (event.key !== 'Shift' || event.repeat || event.ctrlKey || event.metaKey || event.altKey || searchMode) return
-      const now = performance.now()
-      if (now - lastShiftAtRef.current <= 360) {
-        event.preventDefault()
-        setSearchMode('files')
-        lastShiftAtRef.current = 0
-      } else {
-        lastShiftAtRef.current = now
-      }
-    }
-    window.addEventListener('keydown', onShortcut, true)
-    return () => window.removeEventListener('keydown', onShortcut, true)
-  }, [active, searchMode])
 
   useEffect(() => {
     const onWorkspaceMutation = (event: Event) => {
@@ -294,10 +261,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     setRevealLocation((current) => ({ path, line, column: column || 1, nonce: (current?.nonce || 0) + 1 }))
   }
 
-  useEffect(() => {
-    if (openPath && openNonce) void openFile(openPath)
-    // openFile intentionally reads the latest document state for explicit cross-mode navigation.
-  }, [openPath, openNonce])
+  useEditorNavigation({ active, searchMode, setSearchMode, openPath, openNonce, openLocation, onOpen: openFile, onOpenAt: openFileAt })
 
   const save = useCallback(async (path: string): Promise<boolean> => {
     const saveKey = `${session.id}:${path}`
@@ -339,6 +303,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     savePromisesRef.current.set(saveKey, operation)
     try { return await operation } finally { savePromisesRef.current.delete(saveKey) }
   }, [onError, refreshFiles, refreshGitState, session.id])
+
 
   useEffect(() => {
     const openPaths = new Set(documents.map((document) => document.path))
@@ -421,20 +386,9 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
   return <section className="editor-workspace">
     <div className="editor-main">
       <div className="editor-area">
-        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPaths={savingPaths} gitByPath={gitByPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} />}
+        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPaths={savingPaths} gitByPath={gitByPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} onReorder={reorderDocuments} />}
         {selected ? <>
-          {!minimalSurface && <div className="editor-contextbar">
-            <div className="editor-breadcrumbs">{selected.path.split('/').map((part, index, parts) => <span key={`${part}-${index}`}>{part}{index < parts.length - 1 && <i>›</i>}</span>)}</div>
-            <div className="editor-shortcuts">
-              {selectedGit && <GitFileState file={selectedGit} className="editor-git-context-state"/>}
-              {onLocateFile && <button title="Localizar este ficheiro no Explorer" onClick={() => onLocateFile(selected.path)}><Icon name="locate" size={12}/> Localizar</button>}
-              <button title={selectedGit ? 'Comparar o ficheiro guardado com o Git' : 'Sem alterações Git guardadas neste ficheiro'} disabled={!selectedGit || gitDiffLoading || isBinaryPreview(selected.path) || selectedGit.kind === 'submodule' || selectedGit.kind === 'embedded_repository'} onClick={() => void showGitDiff()}><Icon name="git" size={12}/>{gitDiffLoading ? 'A comparar…' : 'Git diff'}</button>
-              {directRunOption && <button title={directRunOption.label} onClick={() => runAction(directRunOption.id)}><Icon name="play" size={11}/> Executar</button>}
-              {recentRunOptions.length > 0 && <details ref={runMenuRef} className="editor-run-menu"><summary><Icon name="play" size={11}/> Recentes</summary><div>{recentRunOptions.map((option) => <button type="button" key={`${option.cwd}:${option.command}`} onClick={(event) => { runAction(option.id); (event.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open') }}><span>{option.label}</span><code>{option.command}</code></button>)}</div></details>}
-              {isRichPreview(selected.path) && !isBinaryPreview(selected.path) && <button title="Alternar editor e pré-visualização" onClick={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}><Icon name={previewPaths.has(selected.path) ? 'code' : 'external'} size={12}/>{previewPaths.has(selected.path) ? 'Editar' : 'Pré-visualizar'}</button>}
-              {!previewPaths.has(selected.path) && <><span>Ctrl+F ficheiro</span><span>Ctrl+Shift+F projeto</span><span>Shift Shift ficheiros</span></>}
-            </div>
-          </div>}
+          {!minimalSurface && <EditorContextBar path={selected.path} projectPath={session.project_path} gitFile={selectedGit} gitDiffDisabled={!selectedGit || gitDiffLoading || isBinaryPreview(selected.path) || selectedGit.kind === 'submodule' || selectedGit.kind === 'embedded_repository'} gitDiffLoading={gitDiffLoading} directRunOption={directRunOption} recentRunOptions={recentRunOptions} showPreviewToggle={isRichPreview(selected.path) && !isBinaryPreview(selected.path)} previewing={previewPaths.has(selected.path)} onLocate={onLocateFile ? () => onLocateFile(selected.path) : undefined} onShowGitDiff={() => void showGitDiff()} onRun={runAction} onTogglePreview={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}/>}
           {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} viewStateScope={session.project_path} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} gitChanges={gitLineChanges} onGitChangeClick={showGitChange} runtimeMarkers={runtimeMarkers} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}
           {!minimalSurface && <div className="editor-statusbar">
             <div className="editor-statusbar-primary">
@@ -442,7 +396,7 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
             </div>
             <div className="editor-statusbar-meta">{selectedGit && <GitFileState file={selectedGit} compact/>}<span>Ln {cursor.line}, Col {cursor.column}</span><span>{editorDisplayLanguage(selected.path)}</span><span>UTF-8</span><span>{new Blob([selected.draft]).size.toLocaleString()} bytes</span></div>
           </div>}
-        </> : <div className="editor-empty"><div className="empty-mark">&lt;/&gt;</div><h3>Abra um ficheiro no Explorador do projeto</h3><p>O Editor agora usa o explorador único do workbench. Abra a tool window Projeto numa das barras e escolha um ficheiro; as tabs preservam rascunhos, undo, pesquisa, folding e navegação por linha.</p></div>}
+        </> : <EditorWelcomePanel/>}
       </div>
     </div>
     {searchMode && <EditorSearchPalette mode={searchMode} sessionId={session.id} files={files} onClose={() => setSearchMode(undefined)} onOpen={(path, line, column) => void openFileAt(path, line, column)} />}

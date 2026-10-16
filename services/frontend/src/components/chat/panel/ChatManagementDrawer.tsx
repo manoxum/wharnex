@@ -1,3 +1,4 @@
+import { IconButton, PanelHeader } from '../../presentation/workbench'
 import { WorkbenchTabs } from '../../presentation/tabs'
 import { useState, type ComponentProps } from 'react'
 import { promptDialog } from '../../../lib/desktop/bridge/appDialog'
@@ -36,7 +37,7 @@ export function ChatManagementDrawer({ projectPath, savedChats, archivedChats, b
   const setManagementTab = (next: 'saved' | 'archived') => { setTab(next); setQuery(''); setPreview(undefined) }
 
   return <section className="agent-archive-drawer" aria-label="Gestão de chats">
-    <header className="agent-drawer-heading agent-archive-heading"><div><span className="panel-kicker">Workspace</span><div className="agent-archive-heading-row"><strong>Gestão de chats</strong><span className="agent-archive-count">{savedChats.length + archivedChats.length}</span></div></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Gestão de chats"><Icon name="close" size={13}/></button></header>
+    <PanelHeader title="Gestão de chats" description={`${savedChats.length + archivedChats.length} conversas guardadas e arquivadas.`} icon="archive" actions={<IconButton label="Fechar Gestão de chats" icon="close" onClick={onClose}/>}/>
     <WorkbenchTabs label="Estado dos chats" value={tab} onChange={setManagementTab} items={[
       { id: 'saved', label: 'Guardados', icon: 'save', badge: savedChats.length },
       { id: 'archived', label: 'Arquivados', icon: 'archive', badge: archivedChats.length },

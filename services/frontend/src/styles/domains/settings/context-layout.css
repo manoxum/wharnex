@@ -1,24 +1,5 @@
 /* Settings information architecture + remote storage pool. */
-.context-settings-dialog .settings-layout { min-height: 0; display: grid; grid-template-columns: 216px minmax(0, 1fr); overflow: hidden; }
-.settings-navigation { padding: 12px 9px; display: flex; flex-direction: column; gap: 3px; border-right: 1px solid #383838; background: #1b1b1b; }
-.settings-navigation button { width: 100%; min-height: 54px; padding: 9px 11px; display: grid; grid-template-columns: 22px minmax(0,1fr); align-items: center; gap: 9px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #969696; text-align: left; cursor: pointer; transition: background .14s ease, color .14s ease, border-color .14s ease; }
-.settings-navigation button:hover { background: #282828; color: #dedede; }
-.settings-navigation button.active { border-color: #4b4b4b; background: #303030; color: #f2f2f2; box-shadow: inset 2px 0 #a8d56d; }
-.settings-navigation button > span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.settings-navigation strong { font-size: calc(11px * var(--ui-font-scale)); }
-.settings-navigation small { overflow: hidden; color: #888; font-size: calc(9px * var(--ui-font-scale)); text-overflow: ellipsis; white-space: nowrap; }
-.settings-navigation button.active small { color: #b8b8b8; }
-.settings-content { min-width: 0; min-height: 0; overflow: auto; scrollbar-width: thin; background: #212121; }
-.settings-content > .appearance-settings-section { margin: 18px 20px; }
 
-.remote-storage-settings { min-height: 100%; padding: 20px; color: #cecece; }
-.remote-storage-hero { display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 12px; }
-.remote-storage-glyph { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid #4b4b4b; border-radius: 10px; background: #2d3328; color: #b9ee77; box-shadow: inset 0 0 18px rgba(185,238,119,.05); }
-.remote-storage-hero .eyebrow { color: #93a184; }
-.remote-storage-hero h3 { margin: 2px 0 3px; color: #f2f2f2; font-size: calc(16px * var(--ui-font-scale)); letter-spacing: -.02em; }
-.remote-storage-hero p { max-width: 670px; margin: 0; color: #a7a7a7; font-size: calc(8.5px * var(--ui-font-scale)); line-height: 1.5; }
-.remote-storage-retention { margin-top: 15px; padding: 9px 11px; display: flex; align-items: center; gap: 8px; border: 1px solid #3f4937; border-radius: 7px; background: #252a22; color: #b8c2af; font-size: calc(8px * var(--ui-font-scale)); line-height: 1.45; }
-.remote-storage-retention svg { flex: 0 0 auto; color: #a8d56d; }
 .remote-storage-restart { margin-top: 10px; padding: 9px 11px; display: flex; align-items: center; gap: 9px; border: 1px solid #66552f; border-radius: 7px; background: #302a1d; }
 .remote-storage-restart > span { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #e0ad47; box-shadow: 0 0 0 4px rgba(224,173,71,.1); }
 .remote-storage-restart > div { display: flex; flex-direction: column; gap: 1px; }
@@ -93,8 +74,6 @@
 .remote-limit-grid label > div { position: relative; }
 .remote-limit-grid label small { position: absolute; right: 7px; top: 9px; color: #727272; font-size: calc(6.5px * var(--ui-font-scale)); pointer-events: none; }
 .remote-limit-grid label:has(small) input { padding-right: 36px; }
-.remote-storage-actions { position: sticky; bottom: -20px; margin: 14px -20px -20px; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid #414141; background: rgba(33,33,33,.96); backdrop-filter: blur(8px); }
-.remote-storage-actions > span { color: #8d8d8d; font-size: calc(8px * var(--ui-font-scale)); }
 
 .context-explorer-section { min-height: 420px; background: #212121; }
 .context-inspector { display: flex; flex-direction: column; min-height: 420px; }
@@ -172,6 +151,3 @@
 .context-patterns { display: flex; flex-wrap: wrap; gap: 4px; }
 .context-patterns code { padding: 2px 5px; border: 1px solid #4d4d4d; border-radius: 4px; background: #171717; color: #cecece; font-size: calc(7px * var(--ui-font-scale)); }
 .context-patterns > span { color: #a0a0a0; font-size: calc(8px * var(--ui-font-scale)); }
-.context-inspection-error { margin: 22px; padding: 12px; display: flex; align-items: center; gap: 8px; border: 1px solid #543129; border-radius: 7px; background: #2a1916; color: #d69487; font-size: calc(9px * var(--ui-font-scale)); }
-.context-inspection-error button { margin-left: auto; border: 0; background: transparent; color: #e9ad9f; cursor: pointer; }
-.settings-loading.compact { min-height: 180px; padding: 20px; }

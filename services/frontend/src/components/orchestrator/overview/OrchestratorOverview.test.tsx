@@ -1,24 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { typeInComposer } from './testing/composerFixture'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import QuillDelta from 'quill-delta'
 import { api } from '../../../lib/transport/http/api'
 import { emptyOrchestratorTaskCounts } from '../../../lib/orchestrator/coordination/orchestratorApi'
 import type { OrchestratorOverview as OverviewData, Session } from '../../../types'
 import { ChatPanel } from '../../chat/panel/ChatPanel'
-import { directivesToDelta, findComposerEditor } from '../../../lib/chat/composer/composerRichText'
 import { OrchestratorOverview } from './OrchestratorOverview'
-
-// jsdom cannot simulate real keystrokes into Quill's contenteditable, so this
-// drives the composer directly through its Quill instance — the same escape
-// hatch ChatPanel.test.tsx uses, reached here via findComposerEditor because
-// this composer is embedded several components deep, with no ref threaded
-// down to it.
-function typeInComposer(container: HTMLElement, text: string) {
-  const editor = findComposerEditor(container)
-  if (!editor) throw new Error('composer editor not mounted')
-  act(() => { editor.setContents(new QuillDelta(directivesToDelta(text).ops) as never, 'user') })
-}
 
 const session = {
   id: 'ses-orchestrator', project_path: '/workspace/demo', state: 'ready', execution_mode: 'protected', automation_mode: 'auto', chat_transport_mode: 'scraper', effort_level: 'high', created_at: '2026-09-12T15:00:00.000Z',
@@ -145,13 +133,15 @@ describe('OrchestratorOverview planning queue', () => {
       onSelectTask={vi.fn()}
     />)
 
-    expect(screen.getByRole('button', { name: 'Protected' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Auto' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Scraper' })).toBeTruthy()
+    expect((screen.getByRole('combobox', { name: 'Proteção de execução' }) as HTMLSelectElement).value).toBe('protected')
+    fireEvent.click(screen.getByRole('button', { name: 'Execução e transporte' }))
+    expect((screen.getByRole('combobox', { name: 'Automação de execução' }) as HTMLSelectElement).value).toBe('auto')
+    expect((screen.getByRole('combobox', { name: 'Transporte com o ChatGPT' }) as HTMLSelectElement).value).toBe('scraper')
     expect(screen.getByRole('combobox', { name: 'Nível de esforço' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Anexar ficheiros' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Planificar antes de alterar' })).toBeTruthy()
 
+    fireEvent.keyDown(document, { key: 'Escape' })
     typeInComposer(view.container, 'Reutilizar exatamente o composer do Agent')
     fireEvent.click(screen.getByRole('button', { name: 'Gerar plano' }))
 

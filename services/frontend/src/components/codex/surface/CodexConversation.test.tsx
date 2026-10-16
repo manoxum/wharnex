@@ -15,3 +15,14 @@ it('keeps native cancellation failures visible and retryable', async () => {
   expect(cancel).toHaveBeenCalledWith('/project', 'chat', 'req_native')
   expect(screen.getByRole('button', { name: 'Cancelar pedido Codex' }).hasAttribute('disabled')).toBe(false)
 })
+it('shows next steps that match an already connected Codex account', () => {
+  render(<CodexConversation connectionState="connected" />)
+  expect(screen.getByText('Codex pronto para a próxima conversa')).toBeTruthy()
+  expect(screen.getByText(/Escolha Codex no compositor do Agent/)).toBeTruthy()
+  expect(screen.queryByText('Ligue a sua conta Codex.')).toBeNull()
+})
+it('keeps account linking as the next step only when Codex is disconnected', () => {
+  render(<CodexConversation connectionState="disconnected" />)
+  expect(screen.getByText('Ligue o Codex para começar')).toBeTruthy()
+  expect(screen.getByText(/Associe uma conta no cabeçalho/)).toBeTruthy()
+})

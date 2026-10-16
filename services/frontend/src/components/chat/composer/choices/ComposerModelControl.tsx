@@ -3,6 +3,7 @@ import { desktopBridge } from '../../../../lib/desktop/bridge/desktop'
 import { errorMessage } from '../../../../lib/workspace/dialogs'
 import { Icon } from '../../../presentation/chrome/Icon'
 import { choiceChrome } from './ComposerSelectChoice'
+import { modelPopoverPlacement, type ModelPopoverPlacement } from './modelPopoverPlacement'
 
 type Props = { workspaceChatId: string; url?: string; disabled?: boolean }
 
@@ -16,7 +17,7 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [discoveryReady, setDiscoveryReady] = useState(false)
-  const [placement, setPlacement] = useState('bottom-full left-0 mb-1')
+  const [placement, setPlacement] = useState<ModelPopoverPlacement>({ className: 'bottom-full left-0 mb-1', minWidth: 192, maxWidth: 288, maxHeight: 256 })
   const revision = useRef(0)
   const shell = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -42,13 +43,27 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
     return () => document.removeEventListener('pointerdown', outside)
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const updatePlacement = () => {
+      const bounds = trigger.current?.getBoundingClientRect()
+      if (!bounds) return
+      const next = modelPopoverPlacement(bounds, { width: window.innerWidth, height: window.innerHeight })
+      setPlacement((current) => current.className === next.className && current.minWidth === next.minWidth && current.maxWidth === next.maxWidth && current.maxHeight === next.maxHeight ? current : next)
+    }
+    updatePlacement()
+    window.addEventListener('resize', updatePlacement)
+    window.addEventListener('scroll', updatePlacement, true)
+    return () => {
+      window.removeEventListener('resize', updatePlacement)
+      window.removeEventListener('scroll', updatePlacement, true)
+    }
+  }, [open])
+
   async function refresh() {
     if (!available || disabled || pending) return
     if (open) { setOpen(false); return }
     const generation = ++revision.current
-    const bounds = trigger.current?.getBoundingClientRect()
-    const vertical = bounds && bounds.top < Math.min(256, window.innerHeight / 2) ? 'top-full mt-1' : 'bottom-full mb-1'
-    setPlacement(`${vertical} ${bounds && bounds.left + 288 > window.innerWidth ? 'right-0' : 'left-0'}`)
     setOpen(true)
     setPending(true)
     setError('')
@@ -110,10 +125,10 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
     <button ref={trigger} type="button" aria-label="Modelo do ChatGPT" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
       title={!available ? 'Escolha de modelo disponível no Desktop para um chat vinculado' : disabled ? 'Modelo bloqueado durante a request ou no transporte manual' : `Modelo do ChatGPT · ${current}`}
       disabled={disabled || !available || pending} onClick={() => void refresh()}
-      className={`${choiceChrome} min-h-0! cursor-pointer! py-0! font-sans text-[calc(8.5px*var(--ui-font-scale))]! font-bold! disabled:cursor-default! disabled:opacity-50`}>
-      <Icon name={pending ? 'refresh' : 'chatgpt'} size={12} /><span className="max-w-[12ch] truncate">{current}</span><Icon name="chevron" size={9} />
+      className={`${choiceChrome} !h-8 !min-h-8 cursor-pointer! py-0! font-sans text-[calc(10.5px*var(--ui-font-scale))]! font-semibold! disabled:cursor-default! disabled:opacity-50`}>
+      <Icon name={pending ? 'refresh' : 'chatgpt'} size={13} /><span className="max-w-[16ch] truncate">{current}</span><Icon name="chevron" size={10} />
     </button>
-    {open && <div id={listId} className={`absolute ${placement} z-50 min-w-48 max-w-72 rounded-[var(--radius-popover)] border border-whx-border bg-whx-elevated p-1.5 text-sm text-whx-text shadow-lg`}>
+    {open && <div id={listId} style={{ minWidth: placement.minWidth, maxWidth: placement.maxWidth, maxHeight: placement.maxHeight }} className={`absolute ${placement.className} z-50 w-max overflow-y-auto rounded-[var(--radius-popover)] border border-whx-border bg-whx-elevated p-1.5 text-sm text-whx-text shadow-lg`}>
       {pending ? <p role="status" className="m-0! p-1.5">A consultar o ChatGPT…</p> : null}
       {error ? <p role="alert" className="m-0! p-1.5 text-whx-warning">{error}</p> : null}
       {inventory && discoveryReady && <div role="listbox" aria-label="Modelos disponíveis neste chat" aria-busy={pending} className="max-h-64 overflow-y-auto">

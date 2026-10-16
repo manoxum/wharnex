@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { bindInternalWindowDrag, bindInternalWindowResize, ensureInternalWindowDockRoot } from '../../../lib/workspace/layout/internalWindow'
 import { InternalWindowPersistenceContext } from '../../../lib/workspace/layout/internalWindowPersistence'
 import { Icon } from '../../presentation/chrome/Icon'
+import { InternalWindowHeaderControls } from './chrome'
 
 type InternalWindowProps = {
   title: string
@@ -11,9 +12,11 @@ type InternalWindowProps = {
   layerClassName?: string
   closeDisabled?: boolean
   maximizable?: boolean
+  controlsInHeader?: boolean
+  closeLabel?: string
 }
 
-export function InternalWindow({ title, onClose, children, layerClassName = '', closeDisabled = false, maximizable = false }: InternalWindowProps) {
+export function InternalWindow({ title, onClose, children, layerClassName = '', closeDisabled = false, maximizable = false, controlsInHeader = false, closeLabel = `Fechar ${title}` }: InternalWindowProps) {
   const persistence = useContext(InternalWindowPersistenceContext)
   const persistenceOwner = persistence?.owner
   const registerPersistence = persistence?.register
@@ -57,22 +60,22 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
     const detachDrag = bindInternalWindowDrag(shell, [dragGripRef.current])
     const detachResize = bindInternalWindowResize(shell, resizeGripRef.current)
     return () => { detachResize(); detachDrag() }
-  }, [])
+  }, [controlsInHeader])
 
   const closeWindow = () => {
     if (persistenceKey) { try { localStorage.removeItem(persistenceKey) } catch { /* best effort */ } }
     onClose()
   }
 
-  const controls = <div className="internal-window-controls" role="group" aria-label={`Controlos da janela ${title}`}>
+  const controls = <div className={`internal-window-controls ${controlsInHeader ? '!static !m-0 !shrink-0 !border-0 !bg-transparent !p-0 !shadow-none [&>button]:!grid [&>button]:!size-7 [&>button]:!min-h-7 [&>button]:!rounded-md [&>button]:!p-0' : ''}`} role="group" aria-label={`Controlos da janela ${title}`}>
     <span ref={dragGripRef} className="internal-window-drag-grip" data-internal-window-drag-handle="true" aria-hidden="true"/>
     <button type="button" onClick={() => setMinimized(true)} aria-label={`Minimizar ${title}`} title="Minimizar"><Icon name="minus" size={12}/></button>
     {maximizable && <button type="button" onClick={() => setMaximized((value) => !value)} aria-label={`${maximized ? 'Restaurar' : 'Maximizar'} ${title}`} title={maximized ? 'Restaurar tamanho' : 'Ecrã inteiro'}><Icon name={maximized ? 'collapse' : 'monitor'} size={12}/></button>}
-    <button type="button" disabled={closeDisabled} onClick={closeWindow} aria-label={`Fechar ${title}`} title="Fechar"><Icon name="close" size={12}/></button>
+    <button type="button" disabled={closeDisabled} onClick={closeWindow} aria-label={closeLabel} title="Fechar"><Icon name="close" size={12}/></button>
   </div>
   const surface = isValidElement<{ children?: ReactNode }>(children) && typeof children.type === 'string'
-    ? cloneElement(children, undefined, <>{children.props.children}{controls}</>)
-    : <div className="internal-window-surface">{children}{controls}</div>
+    ? cloneElement(children, undefined, <>{children.props.children}{!controlsInHeader && controls}</>)
+    : <div className="internal-window-surface">{children}{!controlsInHeader && controls}</div>
 
   const layer = <div
     className={`internal-window-layer ${layerClassName} ${minimized ? 'is-minimized' : ''}`.trim()}
@@ -84,7 +87,7 @@ export function InternalWindow({ title, onClose, children, layerClassName = '', 
       event.stopPropagation()
       closeWindow()
     }}>
-      {surface}
+      <InternalWindowHeaderControls.Provider value={controlsInHeader ? controls : null}>{surface}</InternalWindowHeaderControls.Provider>
       <span ref={resizeGripRef} className="internal-window-resize-grip" data-internal-window-no-drag aria-label={`Redimensionar ${title}`} role="separator"/>
     </div>
   </div>

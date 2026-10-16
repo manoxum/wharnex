@@ -90,4 +90,32 @@ describe('EvolutionEvidenceDrawer modalities', () => {
       true,
     ))
   })
+
+  it('renders long event histories in ordered batches while keeping result selection available', async () => {
+    const events = Array.from({ length: 240 }, (_, index) => ({
+      ...evidence.events[0], id: `evt-${index}`, type: `execution.event-${index}`,
+    }))
+    vi.spyOn(api, 'evolutionEvidence').mockResolvedValue({ ...evidence, events, total: events.length })
+    const { container } = render(<EvolutionEvidenceDrawer session={session} busy={false} onAnalyze={vi.fn(async () => undefined)} onClose={vi.fn()}/> )
+
+    expect(await screen.findByLabelText('Selecionar evento execution.event-239')).toBeTruthy()
+    expect(screen.getAllByRole('checkbox', { name: /^Selecionar evento/ })).toHaveLength(100)
+    expect(screen.getByText('A mostrar 100 de 240 eventos')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 100 eventos' }))
+    expect(screen.getAllByRole('checkbox', { name: /^Selecionar evento/ })).toHaveLength(200)
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar mais 40 eventos' }))
+    expect(await screen.findByLabelText('Selecionar evento execution.event-0')).toBeTruthy()
+    expect(screen.getAllByRole('checkbox', { name: /^Selecionar evento/ })).toHaveLength(events.length)
+    const records = container.querySelectorAll('article')
+    expect(records).toHaveLength(events.length)
+    expect(records[0].className).toContain('[content-visibility:auto]')
+    expect(records[0].querySelector('input')?.getAttribute('aria-label')).toBe('Selecionar evento execution.event-239')
+    expect(records[events.length - 1].querySelector('input')?.getAttribute('aria-label')).toBe('Selecionar evento execution.event-0')
+    fireEvent.click(screen.getByRole('button', { name: 'Selecionar resultados' }))
+    expect(screen.getByText('240 prontos')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Pesquisar evidência'), { target: { value: 'execution.event-239' } })
+    expect(screen.getAllByRole('checkbox', { name: /^Selecionar evento/ })).toHaveLength(1)
+    expect(screen.getByText('A mostrar 1 de 1 eventos')).toBeTruthy()
+    expect((screen.getByLabelText('Selecionar evento execution.event-239') as HTMLInputElement).checked).toBe(true)
+  })
 })

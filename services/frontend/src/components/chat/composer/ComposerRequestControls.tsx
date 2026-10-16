@@ -1,7 +1,9 @@
 import type { AutomationMode, ChatRequestMode, ChatTransportMode, ContextMode, EffortLevel, ReasoningEffort } from '../../../types'
 import { Icon } from '../../presentation/chrome/Icon'
+import { IconButton } from '../../presentation/workbench'
 import { ComposerContextModeControl } from './ComposerContextModeControl'
 import { ComposerReasoningControl } from './choices'
+import { ComposerExecutionOptions } from './options'
 
 export type ComposerRequestControlsProps = {
   automationMode: AutomationMode
@@ -16,6 +18,7 @@ export type ComposerRequestControlsProps = {
   onReasoningEffort?: (effort: ReasoningEffort) => void
   onContextMode?: (mode: ContextMode) => void
   onChatTransportMode?: (mode: ChatTransportMode) => void
+  progressive?: boolean
 }
 
 export function ComposerRequestControls({
@@ -31,7 +34,13 @@ export function ComposerRequestControls({
   onReasoningEffort,
   onContextMode,
   onChatTransportMode,
+  progressive = false,
 }: ComposerRequestControlsProps) {
+  if (progressive) return <>
+    <ComposerContextModeControl mode={contextMode} disabled={busy} onChange={onContextMode}/>
+    <ComposerReasoningControl value={reasoningEffort} disabled={busy} onChange={onReasoningEffort}/>
+    <ComposerExecutionOptions automationMode={automationMode} effortLevel={effortLevel} reasoningEffort={reasoningEffort} contextMode={contextMode} chatTransportMode={chatTransportMode} busy={busy} onAutomationMode={onAutomationMode} onEffortLevel={onEffortLevel} onChatTransportMode={onChatTransportMode} showChatGPTTransport={showChatGPTTransport}/>
+  </>
   return <>
     <span className="composer-mode-group" role="group" aria-label="Automação de execução">
       <button type="button" className={`composer-round-action mode-manual ${automationMode === 'manual' ? 'selected' : ''}`} disabled={busy || !onAutomationMode} aria-pressed={automationMode === 'manual'} aria-label="Manual" title="Manual · executar e aplicar mudanças apenas por ação explícita" onClick={() => onAutomationMode?.('manual')}><Icon name="plan" size={12}/></button>
@@ -64,13 +73,8 @@ export function ComposerPlanFirstControl({ requestMode, disabled = false, onRequ
   disabled?: boolean
   onRequestMode?: (mode: ChatRequestMode) => void
 }) {
-  return <button
-    type="button"
-    className={`composer-round-action plan-first ${requestMode === 'plan_first' ? 'selected' : ''}`}
-    disabled={disabled}
-    aria-pressed={requestMode === 'plan_first'}
-    aria-label="Planificar antes de alterar"
+  return <IconButton label="Planificar antes de alterar" icon="plan" tone={requestMode === 'plan_first' ? 'neutral' : 'quiet'}
+    disabled={disabled} aria-pressed={requestMode === 'plan_first'}
     title={requestMode === 'plan_first' ? 'Plan first ativo · o Wharnex pedirá uma proposta e aguardará aprovação' : 'Planificar antes de alterar'}
-    onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}
-  ><Icon name="plan" size={12}/></button>
+    onClick={() => onRequestMode?.(requestMode === 'plan_first' ? 'direct' : 'plan_first')}/>
 }

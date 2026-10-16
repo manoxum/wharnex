@@ -15,6 +15,12 @@ it('uses main-branch document chrome with full accessible paths and separate clo
     onSelect={select} onClose={close} onSave={save}/>)
   const strip = screen.getByRole('tablist', { name: 'Ficheiros abertos' })
   expect(strip.getAttribute('data-density')).toBe('full')
+  expect(strip.className).toContain('overflow-x-auto')
+  expect(strip.className).toContain('overflow-y-hidden')
+  expect(strip.className).toContain('[&::-webkit-scrollbar]:hidden')
+  expect(strip.style.scrollbarWidth).toBe('none')
+  strip.scrollLeft = 36
+  expect(strip.scrollLeft).toBe(36)
   expect(strip.className).not.toContain('160px')
   expect(strip.className).toContain('gap-0')
   for (const document of documents) {

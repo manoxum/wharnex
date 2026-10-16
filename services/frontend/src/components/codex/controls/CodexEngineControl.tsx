@@ -16,8 +16,8 @@ export function CodexEngineControl({ engine = 'chatgpt', onEngine, projectPath, 
       disabled={disabled || !onEngine || !desktopBridge()?.codex}
       title={engine === 'codex' ? 'Codex Native · acesso direto ao computador · mudar para ChatGPT Scraper' : 'ChatGPT Scraper ativo · mudar para Codex Native com acesso ao computador'}
       onClick={() => onEngine?.(engine === 'codex' ? 'chatgpt' : 'codex')}
-      className="inline-flex !h-[29px] !min-h-0 shrink-0 items-center gap-1.5 !rounded-[var(--radius-popover)] !border !border-solid !border-whx-border-soft ![box-shadow:none] !bg-whx-muted !px-2 !py-0 !text-[calc(9px*var(--ui-font-scale))] !font-semibold !text-whx-soft hover:!border-whx-accent disabled:!opacity-40">
-      <Icon name={engine === 'codex' ? 'code' : 'chatgpt'} size={12}/>
+      className="inline-flex !h-8 !min-h-8 shrink-0 items-center gap-1.5 !rounded-[var(--radius-popover)] !border !border-solid !border-whx-border-soft ![box-shadow:none] !bg-whx-muted !px-2 !py-0 !text-[calc(10.5px*var(--ui-font-scale))] !font-semibold !text-whx-soft hover:!border-whx-accent disabled:!opacity-40">
+      <Icon name={engine === 'codex' ? 'code' : 'chatgpt'} size={13}/>
       {engine === 'codex' ? 'Codex' : 'ChatGPT Scraper'}
       <span aria-hidden="true" className={`relative ml-1 h-3 w-5 rounded-full ${engine === 'codex' ? 'bg-whx-accent' : 'bg-whx-border'}`}><span className={`absolute top-0.5 size-2 rounded-full bg-whx-text transition-transform ${engine === 'codex' ? 'translate-x-2.5' : 'translate-x-0.5'}`}/></span>
     </button>

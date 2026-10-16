@@ -9,9 +9,6 @@
 }
 :root[data-theme] .restart-confirmation-changes { border-color: var(--theme-border); background: var(--theme-surface); }
 :root[data-theme] .restart-confirmation-changes > header { border-color: var(--theme-border-soft); }
-:root[data-theme] .change-diff-shell,
-:root[data-theme] .change-diff-loading { background: var(--theme-bg); color: var(--theme-text-muted); }
-:root[data-theme] .change-diff-toolbar { border-color: var(--theme-border-soft); background: color-mix(in srgb, var(--theme-surface) 86%, var(--theme-bg)); }
 
 @media (max-width: 860px) {
   .restart-confirmation-dialog { width: min(100%, calc(100vw - 16px)); height: calc(100vh - 16px); max-height: calc(100vh - 16px); }
@@ -20,7 +17,6 @@
   .restart-confirmation-overview { grid-template-columns: 1fr; padding: 9px 10px; }
   .restart-confirmation-work-summary p { -webkit-line-clamp: 2; }
   .restart-confirmation-changes { margin: 9px 10px; }
-  .restart-confirmation-changes > .git-diff-review { grid-template-columns: minmax(190px, 32%) minmax(0, 1fr); }
 }
 
 @media (max-width: 680px) {
@@ -31,13 +27,6 @@
   .restart-confirmation-card { min-height: 0; }
   .restart-confirmation-changes > header { align-items: flex-start; }
   .restart-confirmation-changes-copy small { display: none; }
-  .restart-confirmation-changes > .git-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(96px, 24%) minmax(0, 1fr); }
-  .restart-confirmation-changes .git-diff-review-files { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); }
-  .change-diff-toolbar { align-items: stretch; }
-  .change-diff-legend { width: 100%; }
-  .change-diff-legend > .diff-before,
-  .change-diff-legend > .diff-after { flex: 1; }
-  .change-diff-controls { width: 100%; justify-content: flex-end; }
   .restart-confirmation-action-note { display: none; }
   .restart-confirmation-action-buttons { width: 100%; }
   .restart-confirmation-action-buttons button { min-width: 0; flex: 1; white-space: normal; }

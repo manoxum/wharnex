@@ -1,0 +1,589 @@
+{
+  "date": "2026-10-15",
+  "scope": "Desktop frontend UX/UI; initial dirty working tree baseline",
+  "baseline": {
+    "tests": 1359,
+    "passed": 1296,
+    "failed": 63,
+    "pending": 0,
+    "failingFiles": 42
+  },
+  "final": {
+    "tests": 1427,
+    "passed": 1364,
+    "failed": 63,
+    "pending": 0,
+    "failingFiles": 42
+  },
+  "addedTests": 68,
+  "newFailures": [],
+  "latestFullSuite": {
+    "passed": 1364,
+    "failed": 63,
+    "failingFiles": 42,
+    "baselineFailuresRetained": 63,
+    "unhandledErrors": 4,
+    "unhandledErrorContext": "OrchestratorWorkspace tests use a bridge mock without closeInteraction; that flow was not changed in this increment.",
+    "firstRun": "1364 passed, 63 failed in the latest full run.",
+    "comparisonNote": "All 63 recorded baseline failures remain, with no additional failing test names. The current suite adds two passing tests; four OrchestratorWorkspace mock rejections also repeated."
+  },
+  "failureNameChanges": [
+    {
+      "file": "services/frontend/src/styles/domains/execution/operational-visuals.test.ts",
+      "baselineTest": "operational surface visual hierarchy flattens library, execution errors and evidence into quiet IDE lists",
+      "currentTest": "operational surface visual hierarchy keeps execution errors and evidence in quiet IDE lists",
+      "sameFailure": "The existing assertion still expects the absent .evidence-metric rule to contain border-radius: 0."
+    }
+  ],
+  "resolvedBaselineFailures": [],
+  "retainedBaselineFailures": [
+    {
+      "file": "services/frontend/src/app/agent/App.effortLevel.test.ts",
+      "test": "composer effort level offers every requested effort budget in the chat composer"
+    },
+    {
+      "file": "services/frontend/src/app/agent/App.effortLevel.test.ts",
+      "test": "composer effort level treats successful host apply as the terminal boundary"
+    },
+    {
+      "file": "services/frontend/src/app/agent/App.reasoningEffort.test.ts",
+      "test": "per-chat reasoning effort offers only the effort choices observed in the ChatGPT composer"
+    },
+    {
+      "file": "services/frontend/src/app/attention/App.approvalPendingNotice.test.ts",
+      "test": "App bundle-submission approval-pending notice keys the pending-approval state off structured session state, never auto_error prose"
+    },
+    {
+      "file": "services/frontend/src/app/chat/App.chatSwitchLatency.test.ts",
+      "test": "chat switching stays local and immediate keeps every long-running chat action off the active transcript directly"
+    },
+    {
+      "file": "services/frontend/src/app/chat/App.closeAllChats.test.ts",
+      "test": "App closing all chats renders an empty-state call to action instead of the chat workspace when no chat is open"
+    },
+    {
+      "file": "services/frontend/src/app/execution/App.executionRecovery.test.ts",
+      "test": "interrupted execution recovery keeps interrupted execution recovery explicit without globally blocking the workspace"
+    },
+    {
+      "file": "services/frontend/src/app/execution/App.restartConfirmation.test.ts",
+      "test": "App restart confirmation recovery does not auto-open restart confirmation and routes the notification click into it"
+    },
+    {
+      "file": "services/frontend/src/app/transport/App.eventStreamCoalescing.test.ts",
+      "test": "App event stream wiring routes every frame through the coalescer instead of updating per frame"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/AgentWorkspace.test.tsx",
+      "test": "AgentWorkspace exposes the owning chat recovery action after navigating from a global transport alert"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/AgentWorkspace.test.tsx",
+      "test": "AgentWorkspace offers saving an active chat without archiving it"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/AgentWorkspace.test.tsx",
+      "test": "AgentWorkspace opens project files as editable documents without leaving Agent mode"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/AgentWorkspace.test.tsx",
+      "test": "AgentWorkspace opens project-wide plan and execution drawers with full details"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/AgentWorkspace.test.tsx",
+      "test": "AgentWorkspace opens every drawer at the same width with a resizable left panel"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/AgentWorkspace.test.tsx",
+      "test": "AgentWorkspace persists a dragged side-panel width against the shell, not the workspace"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/AgentWorkspace.test.tsx",
+      "test": "AgentWorkspace keeps required panel controls in one shared upper-right toolbar"
+    },
+    {
+      "file": "services/frontend/src/components/artifacts/explorer/ArtifactViewerModal.test.tsx",
+      "test": "ArtifactViewerModal navigates with keyboard and exposes non-destructive image controls"
+    },
+    {
+      "file": "services/frontend/src/components/chat/attachments/ChatAttachmentCard.test.tsx",
+      "test": "chat attachment internal viewer reads persisted timeline attachments into the internal viewer without shell open"
+    },
+    {
+      "file": "services/frontend/src/components/editor/canvas/EditorTabs.test.tsx",
+      "test": "uses main-branch document chrome with full accessible paths and separate close/save actions"
+    },
+    {
+      "file": "services/frontend/src/components/editor/canvas/EditorWorkspace.test.tsx",
+      "test": "EditorWorkspace git diff stability shows the saved Git state in the active tab and editor context"
+    },
+    {
+      "file": "services/frontend/src/components/editor/inspector/Inspector.test.tsx",
+      "test": "Inspector plan compatibility opens a persisted plan whose operation collections are null"
+    },
+    {
+      "file": "services/frontend/src/components/editor/inspector/Inspector.test.tsx",
+      "test": "shows streamed command output immediately below the command event"
+    },
+    {
+      "file": "services/frontend/src/components/git/history/ProjectGitBadge.test.tsx",
+      "test": "ProjectGitBadge presents branch identity and upstream state as a compact Git summary"
+    },
+    {
+      "file": "services/frontend/src/components/git/history/ProjectGitBadge.test.tsx",
+      "test": "ProjectGitBadge shows the Git operation modal for fetch, pull and push from the branch popup"
+    },
+    {
+      "file": "services/frontend/src/components/execution/recovery/RestartConfirmation.layout.test.ts",
+      "test": "restart confirmation layout CSS reuses the Git diff review hierarchy for the activation comparison"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitDrawer.test.tsx",
+      "test": "GitDrawer lists tags and publishes a VERSION-based release from a remote branch modal"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitDrawer.test.tsx",
+      "test": "GitDrawer shows contributor ranking and weekly Git activity like repository insights"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitDrawer.test.tsx",
+      "test": "GitDrawer shows visible processing and a terminal modal for commit and fetch actions"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitDrawer.test.tsx",
+      "test": "GitDrawer copies branch names and remote URLs from version control"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitDrawer.test.tsx",
+      "test": "GitDrawer commits every pending record, or only the selected ones"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitDrawer.test.tsx",
+      "test": "GitDrawer explains that a push conflict published nothing"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitDrawer.test.tsx",
+      "test": "GitDrawer lists superproject and submodules together and selects targets per operation"
+    },
+    {
+      "file": "services/frontend/src/components/git/review/GitPreflightReview.test.ts",
+      "test": "Git preflight review reviews commit, push, pull and merge before running the mutation"
+    },
+    {
+      "file": "services/frontend/src/components/orchestrator/overview/OrchestratorTypography.test.tsx",
+      "test": "Orchestrator typography migration uses readable Tailwind hierarchy across the operational surfaces"
+    },
+    {
+      "file": "services/frontend/src/components/orchestrator/workspace/OrchestratorWorkspace.notificationRouting.test.tsx",
+      "test": "OrchestratorWorkspace notification routing opens Tasks and selects a notification target after refreshing a stale overview"
+    },
+    {
+      "file": "services/frontend/src/components/orchestrator/workspace/OrchestratorWorkspace.test.tsx",
+      "test": "OrchestratorWorkspace polling keeps multiple Worker monitors open and removes only the obsolete follow"
+    },
+    {
+      "file": "services/frontend/src/components/orchestrator/planning/OrchestratorPlanDrawer.accessibility.test.tsx",
+      "test": "summarizes multiple attempts and runs while exposing only relevant actions"
+    },
+    {
+      "file": "services/frontend/src/components/project/tasks/ProjectTodoPanel.test.tsx",
+      "test": "ProjectTodoPanel archives a TODO and moves it into the Arquivados tab"
+    },
+    {
+      "file": "services/frontend/src/styles/theme/palettes/theme-regression.test.ts",
+      "test": "complete colour themes gives the integrated chat header and every bundle stage a distinct dark treatment"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/agent/drawer-heading.test.ts",
+      "test": "drawer heading actions CSS keeps heading controls horizontal and out of the project tree hit area"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/agent/runtime-drawer.test.ts",
+      "test": "agent runtime drawer CSS groups health, capacity and instance details into a calm card hierarchy"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/execution/operational-visuals.test.ts",
+      "test": "operational surface visual hierarchy keeps execution errors and evidence in quiet IDE lists"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/execution/queue.test.ts",
+      "test": "execution queue CSS keeps the FIFO drawer compact and neutral instead of using accent-tinted cards"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/git/workbench.test.ts",
+      "test": "Git workbench CSS keeps Git tabs fully visible and increases the working-copy reading density"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/git/workbench.test.ts",
+      "test": "Git workbench CSS gives Git mutations a modal processing surface with visible progress"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/editor/explorer-terminal.test.ts",
+      "test": "editor explorer terminal visual consolidation keeps native code and terminal canvases on the same restrained dark surface"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/editor/git-gutter.test.ts",
+      "test": "editor Git and Compose gutter CSS keeps clickable Git blocks and Compose runtime state visible in the editor gutter"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/archive.test.tsx",
+      "test": "queues Enter and reserves Ctrl+Enter for an immediate comment while a task is active"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/archive.test.tsx",
+      "test": "moves the latest TODO snapshot to the composer task panel and makes iteration artifacts clickable"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/attachments.test.tsx",
+      "test": "ChatPanel selects files and submits them with the message"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/navigation.test.tsx",
+      "test": "ChatPanel previews the next composer bundle without clearing or sending the draft"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/reference-browser.test.tsx",
+      "test": "ChatPanel exposes the attachment selection panel once a path is attached"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/reference-browser.test.tsx",
+      "test": "ChatPanel opens the context selection modal from an attach chip settings action"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/reference-browser.test.tsx",
+      "test": "ChatPanel opens the context selection modal directly from a ref chip settings action"
+    },
+    {
+      "file": "services/frontend/src/components/chat/panel/testing/reference-browser.test.tsx",
+      "test": "ChatPanel opens the configuration popover when a chip in the text itself is clicked"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/workspace/chrome/consolidation.test.ts",
+      "test": "final workbench visual consolidation uses the restrained semantic palette in the native terminal"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/workspace/chrome/git-focus.test.ts",
+      "test": "workspace readability and Git focus CSS routes every legacy micro font at or below 10px through the UI scale"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/workspace/chrome/git-focus.test.ts",
+      "test": "workspace readability and Git focus CSS keeps Git file state visible in Explorer and Editor without relying on colour alone"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/workspace/chrome/optical-refinement.test.ts",
+      "test": "premium optical refinement separates icon optics from hit areas across rails, Explorer and tool windows"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/workspace/chrome/panel-search.test.ts",
+      "test": "panel search controls CSS shares one polished search treatment across compact drawers and utility panels"
+    },
+    {
+      "file": "services/frontend/src/styles/domains/workspace/layout/rail-theme.test.ts",
+      "test": "workbench rail and theme integrity CSS keeps the tunnel overview compact and gives the empty state its own hierarchy"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/testing/navigation/lists-outofview-chats-fixed-overflow.test.tsx",
+      "test": "lists out-of-view chats in a fixed overflow menu and keeps reorder/save/archive actions"
+    },
+    {
+      "file": "services/frontend/src/components/agent/workspace/testing/surfaces/chat-fixed-left-uses-rightside.test.tsx",
+      "test": "keeps the chat fixed on the left and uses the right-side tabs for the inspector"
+    }
+  ],
+  "gates": {
+    "typecheck": "passed",
+    "build": "passed; existing large-chunk warning retained",
+    "lint": {
+      "baselineErrors": 3,
+      "currentErrors": 3,
+      "newErrors": 0,
+      "files": [
+        "services/frontend/src/components/artifacts/explorer/DrawioPreview.test.tsx",
+        "services/frontend/src/lib/artifacts/drawio/drawioModel.ts"
+      ]
+    },
+    "playwright": {
+      "passed": 12,
+      "failed": 0,
+      "productionMonaco": true,
+      "isolatedNetwork": true
+    },
+    "postExtractionFocusedTests": {
+      "passed": 52,
+      "failed": 0
+    },
+    "newDomainTests": {
+      "passed": 9,
+      "failed": 0
+    },
+    "latestEvidenceListTests": {
+      "passed": 6,
+      "failed": 0,
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed; existing large-chunk warning retained"
+    },
+    "latestKnowledgeCatalog": {
+      "panelTestsPassed": 3,
+      "visualMigrationTest": "passed",
+      "typecheck": "passed",
+      "lint": "passed",
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "baselineFailure": "The terminal palette assertion in consolidation.test.ts still expects colors inline in InteractiveTerminal, while the implementation reads activeTerminalTheme."
+    },
+    "latestBrowserMonitorLayout": {
+      "focusedTestsPassed": 10,
+      "typecheck": "passed",
+      "targetedLint": "passed",
+      "fullLint": {
+        "status": "failed",
+        "baselineErrors": 3,
+        "currentErrors": 3,
+        "newErrors": 0,
+        "files": [
+          "services/frontend/src/components/artifacts/explorer/DrawioPreview.test.tsx",
+          "services/frontend/src/lib/artifacts/drawio/drawioModel.ts"
+        ]
+      },
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "fullFrontendSuite": {
+        "testsPassed": 1353,
+        "testsFailed": 63,
+        "failedFiles": 42,
+        "unhandledErrors": 4,
+        "comparison": "The prior recorded run had 1,352 passed and 63 failed; this run has one additional passing test and the same failure count.",
+        "unhandledErrorContext": "OrchestratorWorkspace tests use a bridge mock without closeInteraction; that flow was not changed in this increment.",
+        "timing": "The final panel-preference restoration after closing Policies was added after this full-suite run; its focused test, typecheck, targeted lint and build passed afterward."
+      },
+      "browserVisualReview": "not performed for the native Electron WebContents surface"
+    },
+    "latestComposerModelPopover": {
+      "placementTestsPassed": 4,
+      "modelControlTestsPassed": 13,
+      "typecheck": "passed",
+      "targetedLint": "passed",
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "fullFrontendSuite": {
+        "testsPassed": 1358,
+        "testsFailed": 63,
+        "failedFiles": 42,
+        "unhandledErrors": 4,
+        "baselineFailuresRetained": 63,
+        "unhandledErrorContext": "OrchestratorWorkspace tests use a bridge mock without closeInteraction; that flow was not changed in this increment."
+      },
+      "visualReview": "not performed in Electron"
+    },
+    "latestSharedPopoverStability": {
+      "focusedTestsPassed": 7,
+      "typecheck": "passed",
+      "targetedLint": "passed",
+      "fullLint": {
+        "status": "failed",
+        "baselineErrors": 3,
+        "currentErrors": 3,
+        "newErrors": 0,
+        "files": [
+          "services/frontend/src/components/artifacts/explorer/DrawioPreview.test.tsx",
+          "services/frontend/src/lib/artifacts/drawio/drawioModel.ts"
+        ]
+      },
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "fullFrontendSuite": {
+        "testsPassed": 1359,
+        "testsFailed": 63,
+        "failedFiles": 42,
+        "unhandledErrors": 4,
+        "baselineFailuresRetained": 63,
+        "comparison": "One additional passing test and the same 63 failures as the previous full-suite run.",
+        "unhandledErrorContext": "OrchestratorWorkspace tests use a bridge mock without closeInteraction; that flow was not changed in this increment."
+      },
+      "visualReview": "not performed in Electron"
+    },
+    "latestAgentRuntimeErrorVisibility": {
+      "focusedTestsPassed": 3,
+      "typecheck": "passed",
+      "targetedLint": "passed",
+      "fullLint": {
+        "status": "failed",
+        "baselineErrors": 3,
+        "currentErrors": 3,
+        "newErrors": 0,
+        "files": [
+          "services/frontend/src/components/artifacts/explorer/DrawioPreview.test.tsx",
+          "services/frontend/src/lib/artifacts/drawio/drawioModel.ts"
+        ]
+      },
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "fullFrontendSuite": {
+        "testsPassed": 1360,
+        "testsFailed": 63,
+        "failedFiles": 42,
+        "unhandledErrors": 4,
+        "baselineFailuresRetained": 63,
+        "comparison": "One additional passing test and the same 63 failures as the previous full-suite run.",
+        "unhandledErrorContext": "OrchestratorWorkspace tests use a bridge mock without closeInteraction; that flow was not changed in this increment."
+      },
+      "visualReview": "not performed in Electron"
+    },
+    "latestEditorDocumentsMenu": {
+      "focusedTestsPassed": 2,
+      "typecheck": "passed",
+      "targetedLint": "passed",
+      "fullLint": {
+        "status": "failed",
+        "baselineErrors": 3,
+        "currentErrors": 3,
+        "newErrors": 0,
+        "files": [
+          "services/frontend/src/components/artifacts/explorer/DrawioPreview.test.tsx",
+          "services/frontend/src/lib/artifacts/drawio/drawioModel.ts"
+        ]
+      },
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "fullFrontendSuite": {
+        "testsPassed": 1362,
+        "testsFailed": 63,
+        "failedFiles": 42,
+        "unhandledErrors": 4,
+        "baselineFailuresRetained": 63,
+        "unhandledErrorContext": "OrchestratorWorkspace tests use a bridge mock without closeInteraction; that flow was not changed in this increment."
+      },
+      "visualReview": "not performed in Electron"
+    },
+    "latestEditorPopoverUnification": {
+      "focusedPopoverTestsPassed": 9,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "fullLint": {
+        "status": "failed",
+        "baselineErrors": 3,
+        "currentErrors": 3,
+        "newErrors": 0,
+        "files": [
+          "services/frontend/src/components/artifacts/explorer/DrawioPreview.test.tsx",
+          "services/frontend/src/lib/artifacts/drawio/drawioModel.ts"
+        ]
+      },
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "fullFrontendSuite": {
+        "testsPassed": 1364,
+        "testsFailed": 63,
+        "failedFiles": 42,
+        "unhandledErrors": 4,
+        "baselineFailuresRetained": 63,
+        "additionalFailureNames": 0,
+        "unhandledErrorContext": "OrchestratorWorkspace tests use a bridge mock without closeInteraction; that flow was not changed in this increment."
+      },
+      "focusedAdjacentRegression": "The Explorer/Editor/Terminal style test confirms the moved EditorContextBar source path; its separate terminal palette assertion remains a recorded baseline failure.",
+      "visualReview": "not performed in Electron"
+    },
+    "latestNativeControlColorScheme": {
+      "focusedThemeTestPassed": 1,
+      "themeRegressionSuite": {
+        "passed": 18,
+        "failed": 1,
+        "baselineFailure": "complete colour themes gives the integrated chat header and every bundle stage a distinct dark treatment"
+      },
+      "typecheck": "passed",
+      "targetedLint": "passed",
+      "build": "passed; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "latestTaskOverviewControls": {
+      "focusedTestsPassed": 1,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "build": "passed; auto-fit rule present in emitted CSS; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "latestTaskEmptyState": {
+      "focusedTestsPassed": 1,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "build": "passed; Tailwind :has() selector present in emitted CSS; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "latestTaskEmptyState": {
+      "focusedTestsPassed": 1,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "build": "passed; conditional Tailwind :has() selector present in emitted CSS; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "latestWorkspaceTopbarLayout": {
+      "focusedTestsPassed": 7,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "build": "passed; responsive Tailwind grid and row placement present in emitted CSS; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "latestAgentRuntimeDetailsReadability": {
+      "focusedTestsPassed": 4,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "build": "passed; grouped details, readable values and text selection present in emitted CSS; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "latestEvolutionEvidencePresentation": {
+      "focusedTestsPassed": 2,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "build": "passed; event content-visibility and intrinsic-size Tailwind utilities compiled; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "latestIconLibraryMigration": {
+      "focusedTestsPassed": 1,
+      "targetedLint": "passed",
+      "typecheck": "passed",
+      "build": "passed; shared Icon API renders Lucide glyphs; Explorer chunk increased by about 4.9 kB gzip; existing large-chunk warning retained",
+      "diffCheck": "passed",
+      "visualReview": "not performed in Electron"
+    },
+    "domainLayout": {
+      "newFrontendViolations": 0,
+      "existingBackendViolations": [
+        {
+          "directory": "services/backend/internal/app",
+          "files": 291
+        },
+        {
+          "directory": "services/backend/internal/sandbox",
+          "files": 66
+        },
+        {
+          "directory": "services/backend/internal/uitesting/httpapi",
+          "files": 21
+        }
+      ]
+    },
+    "newSourceFiles": {
+    "presentInWorkingTree": 147,
+      "presentAtStart": 7,
+    "introduced": 140,
+      "maxLines": 175,
+      "over200Lines": 0,
+      "over20FilesInOwningDirectory": 0
+    },
+    "diffCheck": "passed"
+  },
+  "limitations": [
+    "Browser checks use local fixture data, not authenticated remote browser content.",
+    "Human Host PTY input was not used; terminal component and composition continuity tests were run.",
+    "No backend, Desktop IPC, execution protocol or independent webapp change.",
+    "The full suite retains its pre-existing failures."
+  ]
+}

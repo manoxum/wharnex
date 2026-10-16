@@ -1,13 +1,4 @@
 /* Orchestrator workspace */
-.workspace-mode-surface > .orchestrator-workspace { flex:1; min-width:0; min-height:0; }
-.orchestrator-workspace { display:grid; grid-template-rows:58px minmax(0,1fr); overflow:hidden; background:var(--theme-bg); color:var(--theme-text); }
-.orchestrator-header { padding:0 18px; display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(60px,1fr); align-items:center; gap:16px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-elevated); }
-.orchestrator-header > div:first-child { min-width:0; display:flex; align-items:center; gap:12px; }
-.orchestrator-header nav { display:inline-flex; padding:3px; border:1px solid var(--theme-border-soft); border-radius:9px; background:var(--theme-subtle); }
-.orchestrator-header nav button.active { background:var(--theme-surface); color:var(--theme-text); box-shadow:0 1px 4px var(--theme-shadow); }
-.orchestrator-refresh { justify-self:end; width:30px; height:30px; display:grid; place-items:center; border:1px solid var(--theme-border-soft); border-radius:7px; background:var(--theme-surface); color:var(--theme-text-muted); cursor:pointer; }
-.orchestrator-refresh:hover { color:var(--theme-text); }
-.orchestrator-refresh:disabled { opacity:.55; cursor:default; }
 
 .orchestrator-overview { min-height:0; overflow:auto; padding:0 32px 52px; }
 .orchestrator-goal-stage { min-height:440px; padding:94px 0 54px; display:grid; align-content:start; justify-items:center; }
@@ -19,7 +10,7 @@
 .orchestrator-proposal-card > header button, .orchestrator-manual-plan .primary, .orchestrator-tasks-toolbar > .primary, .orchestrator-drawer .primary { min-height:34px; padding:0 13px; display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:8px; background:var(--theme-accent); color:var(--theme-accent-contrast, #fff); font-weight:700; cursor:pointer; }
 .orchestrator-proposal-card > header button:disabled, .orchestrator-manual-plan .primary:disabled, .orchestrator-drawer .primary:disabled { opacity:.48; cursor:default; }
 
-.orchestrator-manual-plan, .orchestrator-proposal-card, .orchestrator-cockpit { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
+.orchestrator-manual-plan, .orchestrator-proposal-card { width:min(1100px,100%); margin:0 auto 22px; border:1px solid var(--theme-border-soft); border-radius:14px; background:var(--theme-surface); box-shadow:0 8px 24px color-mix(in srgb, var(--theme-shadow) 26%, transparent); }
 .orchestrator-manual-plan { padding:16px; display:grid; gap:10px; }
 .orchestrator-manual-plan > header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .orchestrator-manual-plan > header > div { display:grid; gap:3px; }
@@ -42,20 +33,6 @@
 .orchestrator-proposal-flow > button { min-height:54px; padding:7px 10px; display:grid; grid-template-columns:34px minmax(0,1fr) 20px; align-items:center; gap:10px; border:0; border-radius:8px; background:transparent; color:var(--theme-text); text-align:left; cursor:pointer; }
 .orchestrator-proposal-flow > button:hover { background:var(--theme-hover); }
 .orchestrator-proposal-flow > button > span:nth-child(2) { display:grid; gap:3px; }
-
-.orchestrator-cockpit { overflow:hidden; }
-.orchestrator-cockpit > header { min-height:58px; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:1px solid var(--theme-border-soft); }
-.orchestrator-cockpit > header > div { display:grid; gap:2px; }
-.orchestrator-cockpit > header button { display:flex; align-items:center; gap:5px; border:0; background:transparent; color:var(--theme-accent); cursor:pointer; }
-.orchestrator-metrics { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid var(--theme-border-soft); }
-.orchestrator-metrics > div { min-width:0; min-height:112px; padding:16px 18px; display:grid; align-content:center; gap:4px; border-right:1px solid var(--theme-border-soft); }
-.orchestrator-metrics > div:last-child { border-right:0; }
-.orchestrator-active-strip { display:grid; grid-template-columns:minmax(230px, .75fr) minmax(0, 1.7fr); }
-.orchestrator-slot { padding:17px 18px; display:grid; grid-template-columns:10px minmax(0,1fr); gap:3px 9px; align-content:start; border-right:1px solid var(--theme-border-soft); }
-.orchestrator-slot > span { width:8px; height:8px; margin-top:3px; border-radius:50%; background:var(--theme-text-soft); }
-.orchestrator-slot > span.free { background:#68a36b; box-shadow:0 0 0 4px color-mix(in srgb,#68a36b 14%,transparent); }
-.orchestrator-slot > span.busy { background:#c99342; box-shadow:0 0 0 4px color-mix(in srgb,#c99342 14%,transparent); }
-.orchestrator-slot small { grid-column:2; overflow:hidden; text-overflow:ellipsis; color:var(--theme-text-muted); }
 .orchestrator-empty { padding:24px; color:var(--theme-text-soft); text-align:center; }
 
 .priority { display:inline-flex; width:max-content; padding:2px 6px; border-radius:4px; background:var(--theme-subtle); color:var(--theme-text-muted); }
@@ -147,23 +124,12 @@
 
 @media (max-width: 980px) {
   .mode-switch button { min-width:72px; }
-  .orchestrator-header { grid-template-columns:minmax(120px,1fr) auto 34px; padding:0 10px; }
-  .orchestrator-header > div:first-child > strong { display:none; }
   .orchestrator-overview { padding-left:16px; padding-right:16px; }
   .orchestrator-goal-stage { padding-top:64px; }
-  .orchestrator-metrics { grid-template-columns:repeat(2,1fr); }
-  .orchestrator-metrics > div:nth-child(2) { border-right:0; }
-  .orchestrator-metrics > div:nth-child(-n+2) { border-bottom:1px solid var(--theme-border-soft); }
-  .orchestrator-active-strip { grid-template-columns:1fr; }
-  .orchestrator-slot { border-right:0; border-bottom:1px solid var(--theme-border-soft); }
   .orchestrator-tasks-toolbar > div:first-child { display:none; }
   .orchestrator-view-switch button { padding:0 6px; }
 }
 @media (max-width: 720px) {
-  .orchestrator-header { grid-template-columns:1fr auto; }
-  .orchestrator-header nav { grid-column:1; grid-row:1; justify-self:start; }
-  .orchestrator-header > div:first-child { display:none; }
-  .orchestrator-refresh { grid-column:2; }
   .orchestrator-goal-stage { min-height:390px; padding-top:50px; }
   .orchestrator-composer-shell { width:100%; }
   .orchestrator-proposal-card > header { align-items:flex-start; flex-direction:column; }

@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-16",
+  "scope": "Professional IDE polish of the existing Desktop workbench",
+  "gates": {
+    "production_build": {
+      "status": "passed",
+      "log": "/tmp/wharnex-professional-build-reviewed.log",
+      "includes_typecheck": true,
+      "warnings": [
+        "Existing chunk-size warning above 500 kB"
+      ]
+    },
+    "targeted_lint": {
+      "status": "passed",
+      "logs": [
+        "/tmp/wharnex-ide-targeted-lint.log",
+        "/tmp/wharnex-professional-refactoring-lint.log",
+        "/tmp/wharnex-professional-last-lint.log"
+      ]
+    },
+    "global_lint": {
+      "status": "failed_existing",
+      "log": "/tmp/wharnex-ide-lint-final.log",
+      "errors": 3,
+      "owners": [
+        "DrawioPreview.test.tsx: unused _input and _init",
+        "drawioModel.ts: no-control-regex"
+      ]
+    },
+    "focused_tests": {
+      "status": "passed",
+      "passed": 57,
+      "failed": 0,
+      "result": "/tmp/wharnex-ide-targeted-verified.json"
+    },
+    "post_refactoring_tests": {
+      "status": "passed",
+      "passed": 12,
+      "failed": 0,
+      "log": "/tmp/wharnex-professional-reviewed-tests.log",
+      "scope": "Command contract extraction and final editor focus ownership, including editor inside a dialog; Zen exit reserves editor toolbar space and its browser assertion rejects overlap with Save",
+      "post_review_log": "/tmp/wharnex-professional-reviewed-tests.log"
+    },
+    "full_unit_suite": {
+      "status": "failed",
+      "passed": 1396,
+      "failed": 64,
+      "files": 369,
+      "result": "/tmp/wharnex-professional-full-final.json",
+      "baseline": "/tmp/wharnex-product-polish-final-suite.json",
+      "baseline_failures": 63,
+      "additional_failures": [
+        "EvolutionEvidenceDrawer modalities renders long event histories in ordered batches while keeping result selection available"
+      ],
+      "resolved_baseline_failures": [],
+      "additional_failure_detail": "240-event history selection test exceeded the unchanged 5 second timeout under full-suite load (6.5 s). The same test passed isolated (2.76 s) and in the focused 57-test run. No timeout or assertion was relaxed. Final focus ownership/type-only extraction subsequently covered by the 11-test run."
+    },
+    "browser_workbench": {
+      "status": "passed",
+      "passed": 24,
+      "failed": 0,
+      "log": "/tmp/wharnex-ide-browser-final-24.log",
+      "config": "services/frontend/e2e/workbench/ux.config.ts",
+      "post_review_log": "/tmp/wharnex-professional-final-6.log",
+      "post_review_passed": 6,
+      "post_review_failed": 0
+    },
+    "browser_codex_additional": {
+      "status": "failed",
+      "passed": 6,
+      "failed": 5,
+      "log": "/tmp/wharnex-professional-codex.log",
+      "failures": [
+        "Dark account/composer: exact CSS shadow expectation differs from transparent Tailwind composite",
+        "Light account/composer: exact CSS shadow expectation differs from transparent Tailwind composite",
+        "Quota continuation: account select sought while Configuration tab is not open",
+        "Older quota continuation: account select sought while Configuration tab is not open",
+        "Preferences: fixture-model option absent from the rendered model selector"
+      ],
+      "attribution": "No comparison baseline was available for this extra suite. These failures remain explicit; the Codex runtime/account/model logic and these assertions were not altered to make the suite pass."
+    },
+    "diff_check": {
+      "status": "passed"
+    },
+    "backend_security_gates": {
+      "status": "not_applicable",
+      "reason": "No backend, IPC, protocol, runner or authentication change"
+    }
+  },
+  "visual_review": {
+    "artifact_directory": "/tmp/wharnex-professional-ide-review",
+    "workbench_captures": 31,
+    "scenarios": [
+      "Editor full",
+      "Explorer + editor",
+      "Git + diff",
+      "Docker + editor",
+      "Agent composer",
+      "Orchestrator and shared navigation",
+      "UI test runner normal/compact",
+      "Dossier timeline and lazy payload",
+      "Terminal utility frame",
+      "Problems empty and errors",
+      "Settings loading/simple/manual/maximized",
+      "Browser monitor frame",
+      "Multiple document tabs and order",
+      "Popover and keyboard focus",
+      "Search Everywhere",
+      "Tool window maximize/restore",
+      "Zen",
+      "900x700 compact window",
+      "1920x1080 maximized window",
+      "Light, Darcula and original palettes",
+      "125 percent scale"
+    ],
+    "codex_review": "Native question/activity surface reviewed from existing fixture captures in dark/light; additional suite is not fully passing.",
+    "before_after": "Same 1440x900 dossier state, selected event and expanded payload: professional-dossier-before-filters.png and professional-dossier-after-filters.png. Filters reduced from three rows to one.",
+    "data_policy": "Real shipped components and Monaco workers; isolated fixture API/bridge data. Human PTY and native remote-browser pixels are not exercised."
+  },
+  "limitations": [
+    "No live host-terminal, authenticated agent/Codex runtime, native remote-browser pixel or mutating Git/Docker validation",
+    "Full unit suite has 63 baseline failures plus the documented event-history timeout under load",
+    "Additional Codex suite retains five failures, including unvalidated quota-account and model-preference scenarios",
+    "Native UI Lab Debug and Stop are absent from the current API contract; no fake actions were added",
+    "Search includes files, actual commands, tools and the Settings entry; it does not enumerate individual settings fields or arbitrary live agent/task records"
+  ],
+  "refactoring": {
+    "completed": true,
+    "new_files_below_200_lines": true,
+    "named_domain_placement": true,
+    "dependencies_added": false,
+    "extractions": [
+      "Workbench presentation from oversized App",
+      "Editor focus policy from CodeEditor",
+      "Orchestrator header from its oversized workspace",
+      "Dossier header and adaptive filters"
+    ],
+    "cascade_exception": "Existing shared Agent rail/panel-toolbar cascade retained; touched presentation uses shared Tailwind controls. Dedicated Orchestrator header and pill rules removed."
+  }
+}

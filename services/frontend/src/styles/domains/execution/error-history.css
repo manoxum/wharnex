@@ -57,7 +57,6 @@
 
 /* Detachable/split workbench surfaces ------------------------------------- */
 .surface-layout-actions,
-.editor-surface-actions,
 .terminal-surface-actions,
 .workspace-surface-window-controls,
 .workspace-split-pane > header > div {
@@ -91,7 +90,6 @@
   border-color: var(--border-subtle, rgba(255, 255, 255, .1));
 }
 
-.editor-surface-actions,
 .terminal-surface-actions {
   flex: 0 0 auto;
   margin-left: auto;

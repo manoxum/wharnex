@@ -1,3 +1,4 @@
+import { PanelHeader, StatusBadge } from '../../presentation/workbench'
 import { WorkbenchTabs } from '../../presentation/tabs'
 import { useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
@@ -97,7 +98,7 @@ export function DatabaseExplorerPanel({ onError }: { onError: (message: string) 
   function deleteProfile(id: string) { const next = profiles.filter((item) => item.id !== id); setProfiles(next); persistProfiles(next) }
 
   return <section className="right-tool-panel database-explorer-panel">
-    <header className="database-studio-header"><div className="database-studio-identity"><span className="database-studio-mark"><Icon name="database" size={18}/></span><div><strong>Database Studio</strong><span>PostgreSQL</span></div></div><span className={`database-health ${connected ? 'ready' : ''}`}><i/>{connected ? 'Ligado' : 'Desligado'}</span></header>
+    <PanelHeader title="Database Studio" description="PostgreSQL · ligações, objetos e dados." icon="database" actions={<StatusBadge tone={connected ? 'success' : 'neutral'} icon={connected ? 'check' : 'network'}>{connected ? 'Ligado' : 'Desligado'}</StatusBadge>}/>
     <WorkbenchTabs label="Database Studio" value={tab} onChange={setTab} items={[
       { id: 'connection', label: 'Conexão', icon: 'link' }, { id: 'objects', label: 'Objetos', icon: 'database' },
       { id: 'data', label: 'Dados', icon: 'list' }, { id: 'sql', label: 'SQL', icon: 'code' },

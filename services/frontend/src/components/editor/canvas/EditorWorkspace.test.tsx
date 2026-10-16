@@ -148,26 +148,6 @@ describe('EditorWorkspace git diff stability', () => {
     expect(onLocateFile).toHaveBeenCalledWith('src/App.tsx')
   })
 
-  it('closes the recent-run popup on outside press and Escape', async () => {
-    vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
-    vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'package.json', content: '{\n  "scripts": { "test": "vitest" }\n}', sha256: 'abc123', size: 43 })
-    localStorage.setItem('kernl.editor.recent-runs.v1:/workspace/demo', JSON.stringify([{ command: "npm run 'test'", cwd: '.' }]))
-
-    const view = render(<EditorWorkspace session={session} onError={() => undefined} onRunInTerminal={() => undefined} openPath="package.json" openNonce={1}/>)
-    await waitFor(() => expect(screen.getByText('Recentes')).toBeTruthy())
-    const details = view.container.querySelector<HTMLDetailsElement>('.editor-run-menu')
-    if (!details) throw new Error('recent run menu missing')
-
-    fireEvent.click(screen.getByText('Recentes'))
-    expect(details.open).toBe(true)
-    fireEvent.pointerDown(document.body)
-    expect(details.open).toBe(false)
-
-    fireEvent.click(screen.getByText('Recentes'))
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(details.open).toBe(false)
-  })
-
   it('offers split and detach actions for the active file', async () => {
     vi.spyOn(api, 'listFiles').mockResolvedValue({ files: [] })
     vi.spyOn(api, 'readFile').mockResolvedValue({ path: 'src/App.tsx', content: 'export {}', sha256: 'abc123', size: 9 })

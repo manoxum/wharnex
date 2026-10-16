@@ -86,25 +86,25 @@ export function BrowserMonitorBundles({ agent, link, onExplorerOpenChange }: { a
   }
 
   return <section className="mt-6" aria-label="Bundles trocados">
-    <div className="mb-2 flex items-center justify-between gap-2 border-b border-white/[.13] px-1 pb-2">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.13em] text-slate-300">Bundles trocados</h3>
-      <span className="rounded-md bg-white/[.06] px-2 py-0.5 font-mono text-[10px] text-slate-400">{bundles.length}</span>
+    <div className="mb-2 flex items-center justify-between gap-2 border-b border-whx-border-soft px-1 pb-2">
+      <h3 className="text-whx-caption font-semibold uppercase tracking-[0.13em] text-whx-soft">Bundles trocados</h3>
+      <span className="rounded-md bg-whx-muted px-2 py-0.5 font-mono text-whx-caption text-whx-faint">{bundles.length}</span>
     </div>
-    {!query ? <p className="px-1 py-3 text-[11px] leading-5 text-slate-400">Esta instância ainda não tem um chat ou pedido vinculado.</p> : null}
-    {loading ? <p className="px-1 py-3 text-[11px] text-slate-400" role="status">A carregar bundles…</p> : null}
-    {error ? <p className="rounded-lg border border-rose-400/20 bg-rose-400/[.06] px-3 py-2 text-[11px] leading-5 text-rose-200" role="alert">{error}</p> : null}
-    {!loading && !error && query && !bundles.length ? <p className="px-1 py-3 text-[11px] leading-5 text-slate-400">Nenhum bundle persistido para esta instância.</p> : null}
+    {!query ? <p className="px-1 py-3 text-whx-caption leading-5 text-whx-faint">Esta instância ainda não tem um chat ou pedido vinculado.</p> : null}
+    {loading ? <p className="px-1 py-3 text-whx-caption text-whx-faint" role="status">A carregar bundles…</p> : null}
+    {error ? <p className="rounded-lg border border-whx-danger bg-[color-mix(in_srgb,var(--theme-danger)_10%,transparent)] px-3 py-2 text-whx-caption leading-5 text-whx-danger" role="alert">{error}</p> : null}
+    {!loading && !error && query && !bundles.length ? <p className="px-1 py-3 text-whx-caption leading-5 text-whx-faint">Nenhum bundle persistido para esta instância.</p> : null}
     <div className="space-y-1.5">{bundles.map((item) => {
       const bundle = item.artifact
       const incoming = bundle.direction === 'output'
       return <button key={`${item.session_id}:${bundle.id}`} type="button" onClick={() => { void openExplorer(item) }} title={`Explorar ${bundle.name}`}
-        className="group flex w-full items-start gap-2.5 rounded-lg border border-white/[.08] bg-white/[.025]! px-2.5 py-2 text-left transition hover:border-cyan-400/35 hover:bg-cyan-400/[.06]!">
-        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md text-[14px] ${incoming ? 'bg-emerald-400/[.1] text-emerald-300' : 'bg-cyan-400/[.1] text-cyan-300'}`} aria-hidden="true">{incoming ? '↓' : '↑'}</span>
-        <span className="min-w-0 flex-1"><span className="block truncate font-mono text-[10px] leading-4 text-slate-200" title={bundle.name}>{bundle.name}</span>
-          <span className="mt-0.5 block text-[10px] text-slate-500">{incoming ? 'Resposta' : 'Pedido'} · {formatBytes(bundle.size)} · {bundleTime(bundle.created_at)}</span></span>
-        <span className="text-[10px] text-cyan-300 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">Explorar</span>
+        className="group flex w-full items-start gap-2.5 rounded-lg border border-whx-border-soft bg-whx-muted! px-2.5 py-2 text-left transition hover:border-whx-accent hover:bg-whx-accent!">
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-md text-whx-label ${incoming ? 'bg-whx-success text-whx-success' : 'bg-whx-accent text-whx-accent'}`} aria-hidden="true">{incoming ? '↓' : '↑'}</span>
+        <span className="min-w-0 flex-1"><span className="block truncate font-mono text-whx-caption leading-relaxed text-whx-text" title={bundle.name}>{bundle.name}</span>
+          <span className="mt-0.5 block text-whx-caption text-whx-faint">{incoming ? 'Resposta' : 'Pedido'} · {formatBytes(bundle.size)} · {bundleTime(bundle.created_at)}</span></span>
+        <span className="text-whx-caption text-whx-accent opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">Explorar</span>
       </button>
     })}</div>
-    {selected ? <Suspense fallback={<p className="px-1 py-3 text-[11px] text-slate-400" role="status">A abrir explorador…</p>}><BundleExplorerModal sessionId={selected.session_id} bundle={selected.artifact} onClose={() => { setSelected(undefined); onExplorerOpenChange(false) }} /></Suspense> : null}
+    {selected ? <Suspense fallback={<p className="px-1 py-3 text-whx-caption text-whx-faint" role="status">A abrir explorador…</p>}><BundleExplorerModal sessionId={selected.session_id} bundle={selected.artifact} onClose={() => { setSelected(undefined); onExplorerOpenChange(false) }} /></Suspense> : null}
   </section>
 }

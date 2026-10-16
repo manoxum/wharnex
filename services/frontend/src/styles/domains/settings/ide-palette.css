@@ -1,54 +1,37 @@
 /* Settings use the selected IDE palette throughout. The original rules above
    remain structural; these declarations remove the last fixed dark surfaces. */
-.context-settings-dialog .remote-storage-settings,
-.context-settings-dialog .context-config-section,
-.context-settings-dialog .context-explorer-section,
-.context-settings-dialog .wharness-data-section,
-.context-settings-dialog .language-settings-section { background:var(--theme-bg); color:var(--theme-text-soft); border-color:var(--theme-border-soft); }
-.context-settings-dialog .remote-storage-hero h3,
-.context-settings-dialog .provider-catalog strong,
-.context-settings-dialog .remote-instance-card > header strong,
-.context-settings-dialog .remote-storage-empty strong,
-.context-settings-dialog .connect-provider-row strong,
-.context-settings-dialog .wharness-data-section > header strong { color:var(--theme-text); }
-.context-settings-dialog .remote-storage-hero p,
-.context-settings-dialog .provider-catalog > header span,
-.context-settings-dialog .provider-catalog button small,
-.context-settings-dialog .remote-instance-card > header span,
-.context-settings-dialog .remote-storage-empty,
-.context-settings-dialog .connect-provider-row span,
-.context-settings-dialog .remote-storage-actions > span,
-.context-settings-dialog .wharness-data-section > header span { color:var(--theme-text-muted); }
-.context-settings-dialog .provider-catalog,
-.context-settings-dialog .remote-instance-card,
-.context-settings-dialog .remote-storage-empty,
-.context-settings-dialog .language-settings-section,
-.context-settings-dialog .storage-metric { border-color:var(--theme-border-soft); background:var(--theme-elevated); }
-.context-settings-dialog .provider-catalog > header,
-.context-settings-dialog .remote-instance-card > header,
-.context-settings-dialog .provider-connection-panel,
-.context-settings-dialog .remote-auth-note { border-color:var(--theme-border-soft); background:var(--theme-surface); }
-.context-settings-dialog .provider-catalog button { color:var(--theme-text-muted); }
-.context-settings-dialog .provider-catalog button:hover:not(:disabled) { border-color:var(--theme-border); background:var(--theme-hover); color:var(--theme-text); }
-.context-settings-dialog .remote-instance-grid label,
-.context-settings-dialog .remote-limit-grid label,
-.context-settings-dialog .remote-limits summary { color:var(--theme-text-soft); }
-.context-settings-dialog .remote-instance-grid label > small,
-.context-settings-dialog .remote-limit-grid label small,
-.context-settings-dialog .remote-limits summary small { color:var(--theme-text-muted); }
-.context-settings-dialog .remote-instance-grid input,
-.context-settings-dialog .remote-instance-grid select,
-.context-settings-dialog .remote-limit-grid input,
-.context-settings-dialog .danger-zone input { border-color:var(--theme-border); background:var(--theme-surface); color:var(--theme-text); }
-.context-settings-dialog .remote-limits { border-color:var(--theme-border-soft); }
-.context-settings-dialog .remote-storage-actions { border-color:var(--theme-border-soft); background:color-mix(in srgb,var(--theme-elevated) 94%,transparent); }
-.context-settings-dialog .remote-storage-retention { border-color:color-mix(in srgb,var(--success) 28%,var(--theme-border-soft)); background:color-mix(in srgb,var(--success) 7%,var(--theme-surface)); color:var(--theme-text-soft); }
-.context-settings-dialog .remote-storage-restart { border-color:color-mix(in srgb,var(--warning) 34%,var(--theme-border-soft)); background:color-mix(in srgb,var(--warning) 8%,var(--theme-surface)); }
-.context-settings-dialog .remote-storage-restart strong { color:color-mix(in srgb,var(--warning) 76%,var(--theme-text)); }
-.context-settings-dialog .remote-storage-restart small { color:var(--theme-text-muted); }
-.context-settings-dialog .language-target-option { border-color:var(--theme-border-soft); background:var(--theme-surface); }
-.context-settings-dialog .language-target-option:has(input:checked) { border-color:color-mix(in srgb,var(--theme-accent) 48%,var(--theme-border)); background:var(--theme-accent-soft); box-shadow:inset 2px 0 var(--theme-accent); }
-.context-settings-dialog .language-target-option small { color:var(--theme-text-muted); }
+[data-workbench-settings] .context-explorer-section { background:var(--theme-bg); color:var(--theme-text-soft); border-color:var(--theme-border-soft); }
+[data-workbench-settings] .provider-catalog strong,
+[data-workbench-settings] .remote-instance-card > header strong,
+[data-workbench-settings] .remote-storage-empty strong,
+[data-workbench-settings] .connect-provider-row strong { color:var(--theme-text); }
+[data-workbench-settings] .provider-catalog > header span,
+[data-workbench-settings] .provider-catalog button small,
+[data-workbench-settings] .remote-instance-card > header span,
+[data-workbench-settings] .remote-storage-empty,
+[data-workbench-settings] .connect-provider-row span { color:var(--theme-text-muted); }
+[data-workbench-settings] .provider-catalog,
+[data-workbench-settings] .remote-instance-card,
+[data-workbench-settings] .remote-storage-empty { border-color:var(--theme-border-soft); background:var(--theme-elevated); }
+[data-workbench-settings] .provider-catalog > header,
+[data-workbench-settings] .remote-instance-card > header,
+[data-workbench-settings] .provider-connection-panel,
+[data-workbench-settings] .remote-auth-note { border-color:var(--theme-border-soft); background:var(--theme-surface); }
+[data-workbench-settings] .provider-catalog button { color:var(--theme-text-muted); }
+[data-workbench-settings] .provider-catalog button:hover:not(:disabled) { border-color:var(--theme-border); background:var(--theme-hover); color:var(--theme-text); }
+[data-workbench-settings] .remote-instance-grid label,
+[data-workbench-settings] .remote-limit-grid label,
+[data-workbench-settings] .remote-limits summary { color:var(--theme-text-soft); }
+[data-workbench-settings] .remote-instance-grid label > small,
+[data-workbench-settings] .remote-limit-grid label small,
+[data-workbench-settings] .remote-limits summary small { color:var(--theme-text-muted); }
+[data-workbench-settings] .remote-instance-grid input,
+[data-workbench-settings] .remote-instance-grid select,
+[data-workbench-settings] .remote-limit-grid input { border-color:var(--theme-border); background:var(--theme-surface); color:var(--theme-text); }
+[data-workbench-settings] .remote-limits { border-color:var(--theme-border-soft); }
+[data-workbench-settings] .remote-storage-restart { border-color:color-mix(in srgb,var(--warning) 34%,var(--theme-border-soft)); background:color-mix(in srgb,var(--warning) 8%,var(--theme-surface)); }
+[data-workbench-settings] .remote-storage-restart strong { color:color-mix(in srgb,var(--warning) 76%,var(--theme-text)); }
+[data-workbench-settings] .remote-storage-restart small { color:var(--theme-text-muted); }
 
 /* Centro de Alertas: tokenized hierarchy, clearer metrics and quieter premium cards. */
 .attention-center-drawer { background:var(--theme-bg); color:var(--theme-text); }

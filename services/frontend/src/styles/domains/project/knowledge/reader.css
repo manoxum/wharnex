@@ -1,39 +1,6 @@
-/* Durable knowledge behaves like a navigator + reader, not a dashboard. */
-.project-knowledge-toolbar {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--theme-border);
-  background: var(--theme-surface);
-}
-.project-knowledge-meta > span,
-.project-knowledge-meta > code {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--theme-text-muted);
-}
-.project-knowledge-index { padding: 6px 0; background: var(--theme-surface); }
-.project-knowledge-index-heading { padding-inline: 10px; }
-.project-knowledge-index-heading > b { border-radius: 4px; background: transparent; }
-.project-knowledge-index button {
-  min-height: 34px;
-  padding: 6px 10px;
-  border-radius: 0;
-  border-left: 2px solid transparent;
-}
-.project-knowledge-index button.active {
-  border-left-color: var(--theme-accent);
-  background: color-mix(in srgb, var(--theme-accent) 6%, var(--theme-surface));
-  box-shadow: none;
-}
-.project-knowledge-content { padding: 16px 20px 32px; }
+/* Translation controls remain styled at the child component boundary. */
 .project-knowledge-content .markdown-translation-toolbar {
   border-radius: var(--radius-control);
   background: var(--theme-surface);
   box-shadow: none;
-}
-
-@media (max-width: 820px) {
-  .agent-runtime-list { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); }
-  .project-knowledge-content { padding-inline: 14px; }
 }

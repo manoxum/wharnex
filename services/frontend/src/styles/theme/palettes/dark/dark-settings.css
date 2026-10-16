@@ -1,31 +1,26 @@
-:root[data-theme='dark'] .context-settings-dialog .primary-button {
+:root[data-theme='dark'] [data-workbench-settings] .primary-button {
   border-color: #666;
   background: #ececec;
   color: #171717;
 }
-:root[data-theme='dark'] .context-settings-dialog .primary-button:hover:not(:disabled) { background: #d9d9d9; }
-:root[data-theme='dark'] .context-settings-dialog .secondary-button {
+:root[data-theme='dark'] [data-workbench-settings] .primary-button:hover:not(:disabled) { background: #d9d9d9; }
+:root[data-theme='dark'] [data-workbench-settings] .secondary-button {
   border-color: #4d4d4d;
   background: #303030;
   color: #cecece;
 }
-:root[data-theme='dark'] .context-settings-dialog .secondary-button:hover:not(:disabled) { background: #3a3a3a; color: #f2f2f2; }
-:root[data-theme='dark'] .context-settings-dialog .settings-spinner { border-color: #4d4d4d; border-top-color: #d0d0d0; }
-:root[data-theme='dark'] .context-settings-dialog input[type='checkbox'],
-:root[data-theme='dark'] .context-settings-dialog input[type='range'] { accent-color: #d0d0d0; }
-:root[data-theme='dark'] .context-settings-dialog .settings-grid textarea:focus,
-:root[data-theme='dark'] .context-settings-dialog .settings-size input:focus,
-:root[data-theme='dark'] .context-settings-dialog .typography-settings-grid select:focus,
-:root[data-theme='dark'] .context-settings-dialog .context-search:focus-within {
+:root[data-theme='dark'] [data-workbench-settings] .secondary-button:hover:not(:disabled) { background: #3a3a3a; color: #f2f2f2; }
+:root[data-theme='dark'] [data-workbench-settings] input[type='checkbox'],
+:root[data-theme='dark'] [data-workbench-settings] input[type='range'] { accent-color: #d0d0d0; }
+:root[data-theme='dark'] [data-workbench-settings] .typography-settings-grid select:focus,
+:root[data-theme='dark'] [data-workbench-settings] .context-search:focus-within {
   border-color: #737373;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .08);
   outline: none;
 }
-:root[data-theme='dark'] .context-settings-dialog .eyebrow,
-:root[data-theme='dark'] .context-settings-dialog header p,
-:root[data-theme='dark'] .context-settings-dialog > footer > span,
-:root[data-theme='dark'] .context-section-title span,
-:root[data-theme='dark'] .context-section-title > code,
+:root[data-theme='dark'] [data-workbench-settings] .eyebrow,
+:root[data-theme='dark'] [data-workbench-settings] header p,
+:root[data-theme='dark'] [data-workbench-settings] > footer > span,
 :root[data-theme='dark'] .context-summary > span,
 :root[data-theme='dark'] .context-summary > small,
 :root[data-theme='dark'] .context-rule-card header span,
@@ -33,19 +28,12 @@
 :root[data-theme='dark'] .context-patterns > span,
 :root[data-theme='dark'] .context-size,
 :root[data-theme='dark'] .context-empty,
-:root[data-theme='dark'] .context-list-footer,
-:root[data-theme='dark'] .storage-metric span,
-:root[data-theme='dark'] .project-storage-row small,
-:root[data-theme='dark'] .wharness-data-section .project-storage-row > div > span,
-:root[data-theme='dark'] .wharness-data-section .browser-session-actions > div:first-child > span { color: #adadad; }
-:root[data-theme='dark'] .context-settings-dialog h2,
-:root[data-theme='dark'] .context-section-title strong,
-:root[data-theme='dark'] .context-settings-dialog .settings-toggle strong,
+:root[data-theme='dark'] .context-list-footer { color: #adadad; }
+:root[data-theme='dark'] [data-workbench-settings] h2,
+:root[data-theme='dark'] [data-workbench-settings] .settings-toggle strong,
 :root[data-theme='dark'] .context-summary > strong,
 :root[data-theme='dark'] .context-summary.ok strong,
-:root[data-theme='dark'] .context-rule-card strong,
-:root[data-theme='dark'] .storage-metric strong,
-:root[data-theme='dark'] .browser-session-actions strong { color: #f2f2f2; }
+:root[data-theme='dark'] .context-rule-card strong { color: #f2f2f2; }
 :root[data-theme='dark'] .context-filter-switch button.active.included,
 :root[data-theme='dark'] .context-status.included,
 :root[data-theme='dark'] .context-rule-state.enabled {
@@ -56,7 +44,7 @@
 :root[data-theme='dark'] .context-inventory-row > svg,
 :root[data-theme='dark'] .context-root-row > svg,
 :root[data-theme='dark'] .context-search button { color: #adadad; }
-:root[data-theme='dark'] .context-settings-dialog .settings-security-note {
+:root[data-theme='dark'] [data-workbench-settings] .settings-security-note {
   border-left-color: #666;
   background: #292929;
   color: #cecece;
@@ -64,20 +52,8 @@
 
 @media (max-width: 760px) {
   .theme-preference-control { grid-template-columns: 1fr; }
-}
+}/* Monaco change diff chrome follows the local Wharnex appearance. */
 
-/* Monaco change diff chrome follows the local Wharnex appearance. */
-:root[data-theme='light'] .change-diff-shell,
-:root[data-theme='light'] .change-diff-loading { background: #f7f8f4; color: #687064; }
-:root[data-theme='light'] .change-diff-toolbar { border-color: #cfd5ca; background: #e7ebe3; }
-:root[data-theme='light'] .change-diff-legend .diff-before { background: #f2dfdc; color: #944b43; }
-:root[data-theme='light'] .change-diff-legend .diff-after { background: #dfeadd; color: #397244; }
-:root[data-theme='light'] .change-diff-legend .diff-fragment-badge { background: #dde2d8; color: #687064; }
-:root[data-theme='light'] .change-diff-position { color: #657061; }
-:root[data-theme='light'] .diff-layout-toggle { border-color: #c6ccc1; background: #f4f6f1; }
-:root[data-theme='light'] .diff-layout-toggle button { color: #687064; }
-:root[data-theme='light'] .diff-layout-toggle button:hover { color: #30372d; }
-:root[data-theme='light'] .diff-layout-toggle button.active { background: #dce2d7; color: #30372d; }
 
 /* Unified workbench palette: drawers and their detail panes belong to one theme. */
 :root[data-theme='light'] .project-activity-list,

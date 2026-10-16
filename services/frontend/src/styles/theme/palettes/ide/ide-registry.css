@@ -34,7 +34,6 @@
 :root[data-ui-theme='high-contrast'] .agent-activity-bar,
 :root[data-ui-theme='high-contrast'] .agent-drawer,
 :root[data-ui-theme='high-contrast'] .terminal-workspace,
-:root[data-ui-theme='high-contrast'] .workbench-status-bar,
 :root[data-ui-theme='high-contrast'] .quick-switcher-popover { border-color: #fff !important; background: #000 !important; color: #fff !important; }
 :root[data-ui-theme='high-contrast'] button:focus-visible,
 :root[data-ui-theme='high-contrast'] input:focus-visible,
@@ -84,16 +83,12 @@
 :root[data-ui-theme]:not([data-ui-theme='original']) .multi-project-bar,
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-activity-bar,
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-drawer,
-:root[data-ui-theme]:not([data-ui-theme='original']) .workbench-status-bar,
-:root[data-ui-theme]:not([data-ui-theme='original']) .file-explorer,
-:root[data-ui-theme]:not([data-ui-theme='original']) .editor-contextbar {
+:root[data-ui-theme]:not([data-ui-theme='original']) .file-explorer {
   border-color:var(--theme-border); background:var(--theme-surface); color:var(--theme-text-soft);
 }
 :root[data-ui-theme]:not([data-ui-theme='original']) .agent-drawer-heading,
 :root[data-ui-theme]:not([data-ui-theme='original']) .editor-tabs{ border-color:var(--theme-border); background:var(--theme-muted); }
-:root[data-ui-theme]:not([data-ui-theme='original']) .agent-tree-row:hover,
 :root[data-ui-theme]:not([data-ui-theme='original']) .workspace-side-rail button:hover{ background:var(--theme-hover); color:var(--theme-text); }
-:root[data-ui-theme]:not([data-ui-theme='original']) .agent-tree-row.selected-node,
 :root[data-ui-theme]:not([data-ui-theme='original']) .workspace-side-rail button.active { background:var(--theme-accent-soft); color:var(--theme-text); }
 
 .theme-preference-control em { color:var(--theme-text-muted); font-size:calc(6px * var(--ui-font-scale)); font-style:normal; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
@@ -133,28 +128,18 @@
 :root .workspace-agent-rail-slot .agent-surface-tabs button.active {
   border-left-color: transparent;
   border-bottom-color: transparent;
-}
-
-/* Settings and native controls inherit the complete selected IDE palette. */
-:root[data-ui-theme] .context-settings-dialog,
-:root[data-ui-theme] .context-settings-dialog .project-settings-body,
-:root[data-ui-theme] .context-settings-dialog > header,
-:root[data-ui-theme] .context-settings-dialog > footer {
+}/* Settings and native controls inherit the complete selected IDE palette. */
+:root[data-ui-theme] [data-workbench-settings] > header,
+:root[data-ui-theme] [data-workbench-settings] > footer {
   border-color: var(--theme-border);
   background: var(--theme-elevated);
   color: var(--theme-text);
 }
-:root[data-ui-theme] .settings-navigation {
-  border-color: var(--theme-border-soft);
-  background: color-mix(in srgb, var(--theme-bg) 76%, var(--theme-elevated));
-}
-:root[data-ui-theme] .settings-content,
-:root[data-ui-theme] .appearance-settings-section { background: var(--theme-bg); color: var(--theme-text); }
-:root[data-ui-theme] .settings-premium-card,
-:root[data-ui-theme] .settings-project-summary { border-color: var(--theme-border-soft); background: var(--theme-elevated); color: var(--theme-text); }
-:root[data-ui-theme] .settings-navigation button:hover { background: var(--theme-hover); color: var(--theme-text); }
-:root[data-ui-theme] .settings-navigation button.active { border-color: transparent; background: var(--theme-accent-soft); color: var(--theme-text); box-shadow: inset 2px 0 var(--theme-accent); }
-:root[data-ui-theme] .context-settings-dialog select,
+:root[data-ui-theme] [data-workbench-settings] select,
 :root[data-ui-theme] .quick-switcher-select-shell select { color: var(--theme-text); }
-:root[data-ui-theme] .context-settings-dialog select option,
+:root[data-ui-theme] [data-workbench-settings] select option,
 :root[data-ui-theme] .quick-switcher-select-shell select option { background: var(--theme-elevated); color: var(--theme-text); }
+
+/* Native option popups use the same active palette across every module. */
+:root[data-ui-theme] option { background-color: var(--theme-elevated); color: var(--theme-text); }
+:root[data-ui-theme] option:checked { background-color: var(--theme-accent-soft); color: var(--theme-text); }

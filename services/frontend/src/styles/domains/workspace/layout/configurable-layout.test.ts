@@ -1,3 +1,5 @@
+import statusBarSource from '../../../../components/workspace/shell/WorkbenchStatusBar.tsx?raw'
+import settingsFrameSource from '../../../../components/project/settings/navigation/SettingsFrame.tsx?raw'
 import { describe, expect, it } from 'vitest'
 import { css, lastRule, firstRule } from '../../../cascade/styleRules'
 
@@ -8,7 +10,9 @@ describe('configurable workbench CSS', () => {
     expect(lastRule('.workspace-center-column')).toContain('min-width: 0')
     expect(css).not.toContain('max-width: 42vw')
     expect(css).toContain('.workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }')
-    expect(css).toContain('.workbench-status-bar { height: 24px; flex: 0 0 24px;')
+    expect(statusBarSource).toContain('min-h-7 shrink-0')
+    expect(statusBarSource).toContain('text-whx-caption')
+    expect(statusBarSource).toContain('<LayoutControls')
     expect(compactRail).toContain('width: 40px')
   })
 
@@ -28,7 +32,8 @@ describe('configurable workbench CSS', () => {
     expect(bottomRail).toContain('overflow-x:hidden')
     expect(bottomRail).toContain('overflow-y:hidden')
     expect(lastRule('.workspace-side-rail button.active')).toContain('box-shadow:none')
-    expect(lastRule('.settings-navigation button.active')).toContain('border-color:transparent')
+    expect(settingsFrameSource).toContain("section === item.id ? '!bg-whx-hover !text-whx-text'")
+    expect(settingsFrameSource).toContain('!border-0')
     expect(lastRule('.quick-switcher-segments button.active')).toContain('border-color: transparent')
     expect(lastRule('.accent-choice.active')).toContain('border-color:transparent')
   })

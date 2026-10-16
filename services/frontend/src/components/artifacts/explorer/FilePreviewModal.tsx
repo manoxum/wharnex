@@ -1,8 +1,10 @@
+import { WindowPanelHeader } from '../../workspace/window/chrome'
 import { useEffect, useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import { confirmDialog } from '../../../lib/desktop/bridge/appDialog'
 import { CodeEditor } from '../../editor/canvas/CodeEditor'
-import { Icon } from '../../presentation/chrome/Icon'
+import { Button, StatusBadge } from '../../presentation/workbench'
+import { ContentSkeleton } from '../../presentation/chrome/Skeleton'
 import { InternalWindow } from '../../workspace/window/InternalWindow'
 import { TranslatableMarkdown } from '../../presentation/content/TranslatableMarkdown'
 
@@ -66,22 +68,20 @@ export function FilePreviewModal({ sessionId, path, onOpenInEditor, onClose }: {
     onClose()
   }
 
-  return <InternalWindow title={`Pré-visualização de ${path}`} layerClassName="diff-inspector-backdrop" onClose={() => void close()}>
-    <section className="diff-inspector file-preview-inspector" role="dialog" aria-modal="false" aria-label={`Pré-visualização de ${path}`}>
-      <header>
-        <div><strong>{path}</strong>{typeof size === 'number' && <span>{formatBytes(size)}</span>}{dirty && <span className="file-preview-dirty">Alterado</span>}</div>
-        <div>
-          {markdown && content !== undefined && <button type="button" className="text-button" onClick={() => setMarkdownPreview((value) => !value)}><Icon name={markdownPreview ? 'code' : 'external'} size={12}/>{markdownPreview ? 'Editar' : 'Pré-visualizar'}</button>}
-          <button type="button" className="text-button" disabled={!dirty || saving} onClick={() => void save()} title="Guardar (Ctrl+S)"><Icon name="save" size={12}/>{saving ? 'A guardar…' : 'Guardar'}</button>
-          <button type="button" className="text-button" onClick={() => void openInEditor()}><Icon name="file" size={12}/> Abrir no Editor</button>
-          <button type="button" className="icon-button light" onClick={() => void close()} aria-label="Fechar ficheiro"><Icon name="close" size={13}/></button>
-        </div>
-      </header>
-      {error && <div className="file-preview-error" role="alert">{error}</div>}
-      {content === undefined && !error ? <div className="change-diff-loading">A carregar…</div>
+  return <InternalWindow title={`Pré-visualização de ${path}`} layerClassName="diff-inspector-backdrop" onClose={() => void close()} maximizable controlsInHeader closeLabel="Fechar ficheiro">
+    <section className="flex h-[min(82vh,860px)] w-[min(94vw,1200px)] min-w-0 flex-col overflow-hidden rounded-xl border border-whx-border bg-whx-bg" role="dialog" aria-modal="false" aria-label={`Pré-visualização de ${path}`}>
+      <WindowPanelHeader onClose={() => void close()} closeLabel="Fechar ficheiro" title={path} description={typeof size === 'number' ? formatBytes(size) : 'Pré-visualização de ficheiro'} icon="file">
+        {dirty && <StatusBadge tone="warning" icon="edit">Alterado</StatusBadge>}
+        {markdown && content !== undefined && <Button tone="quiet" icon={markdownPreview ? 'code' : 'external'} onClick={() => setMarkdownPreview((value) => !value)}>{markdownPreview ? 'Editar' : 'Pré-visualizar'}</Button>}
+        <Button icon="save" disabled={!dirty || saving} onClick={() => void save()} title="Guardar (Ctrl+S)">{saving ? 'A guardar…' : 'Guardar'}</Button>
+        <Button tone="quiet" icon="file" onClick={() => void openInEditor()}>Abrir no Editor</Button>
+      </WindowPanelHeader>
+
+      {error && <div className="border-b border-whx-danger px-4 py-3 text-whx-label text-whx-danger" role="alert">{error}</div>}
+      {content === undefined && !error ? <ContentSkeleton label="A carregar ficheiro" rows={8}/>
         : content === undefined ? null
-        : markdown && markdownPreview ? <div className="file-preview-markdown"><TranslatableMarkdown sessionId={sessionId} markdown={draft || 'Ficheiro vazio.'}/></div>
-        : <div className="file-preview-editor"><CodeEditor path={path} value={draft} onChange={setDraft} onSave={() => void save()} onCursorChange={() => undefined}/></div>}
+        : markdown && markdownPreview ? <div className="min-h-0 flex-1 overflow-auto p-5"><TranslatableMarkdown sessionId={sessionId} markdown={draft || 'Ficheiro vazio.'}/></div>
+        : <div className="min-h-0 flex-1 overflow-hidden"><CodeEditor path={path} value={draft} onChange={setDraft} onSave={() => void save()} onCursorChange={() => undefined}/></div>}
     </section>
   </InternalWindow>
 }

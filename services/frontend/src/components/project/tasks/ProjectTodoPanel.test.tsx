@@ -60,6 +60,29 @@ describe('ProjectTodoPanel', () => {
     expect(tabs.textContent).not.toContain('Pendente/Execução')
   })
 
+  it('offers the first TODO action inside its contextual empty state', async () => {
+    mocks.projectTodos.mockResolvedValue({ todos: [] })
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/> )
+
+    expect(await screen.findByText('Ainda não registaste uma ideia')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Adicionar nova ideia' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Registar uma ideia' }))
+
+    expect(screen.getByTestId('todo-composer')).toBeTruthy()
+    expect(screen.getByText('Descreva a ideia, necessidade, erro ou melhoria…')).toBeTruthy()
+  })
+
+  it('shows a real loading status instead of a false empty state before the first response', async () => {
+    let resolveTodos!: (value: { todos: ProjectTodo[] }) => void
+    mocks.projectTodos.mockReturnValue(new Promise((resolve) => { resolveTodos = resolve }))
+    render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
+
+    expect(screen.getByRole('status').textContent).toContain('A carregar TODOs')
+    expect(screen.queryByText('Ainda não registaste uma ideia')).toBeNull()
+    resolveTodos({ todos: [] })
+    expect(await screen.findByText('Ainda não registaste uma ideia')).toBeTruthy()
+  })
+
   it('keeps the composer hidden behind the add FAB and shows worker enrichment', async () => {
     render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
 

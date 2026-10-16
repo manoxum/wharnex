@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
+import { focusEditorWhenAvailable } from './focus'
 import type * as Monaco from 'monaco-editor'
 import { activeMonacoTheme, configureMonaco, editorModelURI, monaco, useMonacoRuntime } from '../../../lib/editor/runtime/monaco'
 import { editorLanguageForPath } from '../../../lib/editor/runtime/editorLanguage'
@@ -6,7 +7,6 @@ import type { EditorGitChange } from '../../../lib/editor/runtime/editorGitChang
 import type { EditorRuntimeMarker } from '../../../lib/editor/runtime/editorRuntimeMarkers'
 import { subscribeUIPreferences, workspaceEditorFontSize } from '../../../lib/workspace/preferences/uiPreferences'
 import { ContentSkeleton } from '../../presentation/chrome/Skeleton'
-
 type Cursor = { line: number; column: number }
 type RunAction = { id: string; label: string; line?: number }
 
@@ -265,7 +265,7 @@ function CodeEditorSurface({ path, viewStateScope = '', value, onChange, onSave,
     runtimeDecorations.current = instance.createDecorationsCollection(runtimeMarkerDecorations(runtimeMarkersRef.current, model.getLineCount()))
     const state = viewStates.current.get(path) ?? loadEditorViewState(viewStateScope, path)
     if (state) { viewStates.current.set(path, state); instance.restoreViewState(state) }
-    instance.focus()
+    focusEditorWhenAvailable(instance, host.current)
   }, [path])
 
   useEffect(() => {
@@ -277,7 +277,7 @@ function CodeEditorSurface({ path, viewStateScope = '', value, onChange, onSave,
     const position = { lineNumber, column }
     instance.setPosition(position)
     instance.revealPositionInCenter(position)
-    instance.focus()
+    focusEditorWhenAvailable(instance, host.current)
   }, [path, revealColumn, revealLine, revealNonce])
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { css, lastRule, firstRule } from '../../cascade/styleRules'
+import { allocateSupportingPanels, primaryWorkspaceReserve } from '../../../components/workspace/shell/layout/panelAllocation'
 
 describe('split Agent layout CSS', () => {
   it('keeps the resizable split while moving Agent shortcuts into a dedicated right rail', () => {
@@ -33,7 +34,11 @@ describe('split Agent layout CSS', () => {
     expect(lastRule('.workspace-mode-surface > .agent-workspace')).toContain('min-width: 0')
     expect(lastRule('.workspace-mode-surface > .agent-workspace')).not.toContain('100vw / 3')
     expect(css).not.toContain('min-width: calc(100vw / 3)')
-    expect(firstRule('.workspace-main-row > .agent-drawer')).toContain('calc((100% - 100px) / 5)')
+    // Supporting panels now project their saved widths around the primary
+    // workspace, instead of relying on a uniform CSS fifth for every tool.
+    const panels = allocateSupportingPanels(1280, 100, { tool: 'project', preferred: 400 }, { tool: 'docker', preferred: 600 })
+    expect(panels.left + panels.right + primaryWorkspaceReserve(1280)).toBeLessThanOrEqual(1181)
+    expect(panels.right).toBeGreaterThan(panels.left)
     expect(lastRule('.agent-workspace.agent-rail-unified')).toContain('grid-template-columns:minmax(0,var(--agent-chat-width)) 6px minmax(0,1fr)')
     // The right drawer refused to shrink at all, so the centre absorbed every
     // pixel of layout pressure by itself.

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { css, lastRule } from '../../../cascade/styleRules'
 
@@ -14,9 +16,13 @@ describe('workspace readability and Git focus CSS', () => {
   })
 
   it('keeps Git file state visible in Explorer and Editor without relying on colour alone', () => {
-    expect(lastRule('.agent-project-git-summary')).toContain('var(--ui-font-scale)')
-    expect(lastRule('.agent-tree-git-status')).toContain('display: inline-flex')
+    const explorer = readFileSync(resolve(process.cwd(), 'src/components/agent/explorer/AgentProjectExplorer.tsx'), 'utf8')
+    const tree = readFileSync(resolve(process.cwd(), 'src/components/agent/explorer/ProjectExplorerTree.tsx'), 'utf8')
+    expect(explorer).toContain('text-[calc(9px*var(--ui-font-scale))]')
+    expect(tree).toContain('agent-tree-git-status inline-flex')
+    expect(tree).toContain('statusTone[file.status]')
     expect(lastRule('.editor-git-file-state')).toContain('display: inline-flex')
-    expect(lastRule('.agent-tree-row.git-changed::before')).toContain('width: 2px')
+    expect(tree).toContain('git-${file.status}')
+    expect(tree).toContain('<GitChangeBadge file={file}/>')
   })
 })

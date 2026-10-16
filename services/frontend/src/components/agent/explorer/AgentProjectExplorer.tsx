@@ -3,14 +3,12 @@ import { api, APIError } from '../../../lib/transport/http/api'
 import { useGitLiveRefresh } from '../../../lib/git/workflow/useGitLiveRefresh'
 import { confirmDialog, promptDialog } from '../../../lib/desktop/bridge/appDialog'
 import type { FileEntry, GitFileDiff, GitWorkingFile, Session } from '../../../types'
-import { DirectoryGlyph, FileGlyph } from '../../editor/canvas/FileGlyph'
+import { FileGlyph } from '../../editor/canvas/FileGlyph'
 import { Icon } from '../../presentation/chrome/Icon'
-import { ContentSkeleton } from '../../presentation/chrome/Skeleton'
 import { ChangeDiffEditor } from '../../editor/canvas/ChangeDiffEditor'
-
-type TreeNode = { name: string; path: string; kind: 'file' | 'directory'; children: TreeNode[] }
-type ContextMenu = { x: number; y: number; node: TreeNode }
-type WorkspaceMutation = { kind: 'create'; path: string } | { kind: 'rename'; from: string; to: string } | { kind: 'delete'; path: string }
+import { ProjectExplorerHeader } from './ProjectExplorerHeader'
+import { ProjectExplorerTree } from './ProjectExplorerTree'
+import { buildTree, canOpenGitDiff, changedDirectoryCounts, findNode, parentPath, validateLeafName, withAncestors, type ContextMenu, type TreeNode, type WorkspaceMutation } from './projectExplorerModel'
 
 export function AgentProjectExplorer({ session, onOpen, onError, onClose, revealPath, revealNonce = 0 }: {
   session: Session
@@ -29,8 +27,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
   const [menu, setMenu] = useState<ContextMenu>()
   const [loading, setLoading] = useState(false)
   const treeRef = useRef<HTMLDivElement>(null)
-  const fullTree = useMemo(() => buildTree(entries), [entries])
-  const tree = fullTree
+  const tree = useMemo(() => buildTree(entries), [entries])
   const gitByPath = useMemo(() => new Map(gitFiles.map((file) => [file.path, file])), [gitFiles])
   const gitDirectoryCounts = useMemo(() => changedDirectoryCounts(gitFiles), [gitFiles])
   const hiddenGitFiles = useMemo(() => {
@@ -39,7 +36,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
   }, [entries, gitFiles])
   const gitTotals = useMemo(() => gitFiles.reduce((totals, file) => ({ additions: totals.additions + (file.additions || 0), deletions: totals.deletions + (file.deletions || 0) }), { additions: 0, deletions: 0 }), [gitFiles])
   const gitDiffFile = useMemo(() => gitDiff?.diff ? { path: gitDiff.path, additions: 0, deletions: 0, diff: gitDiff.diff } : undefined, [gitDiff?.path, gitDiff?.diff])
-  const focused = useMemo(() => focusedPath ? findNode(fullTree, focusedPath) : undefined, [fullTree, focusedPath])
+  const focused = useMemo(() => focusedPath ? findNode(tree, focusedPath) : undefined, [tree, focusedPath])
 
   const refresh = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true)
@@ -64,7 +61,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
   }, [refreshQuietly])
   useGitLiveRefresh(session.id, refreshQuietly)
   useEffect(() => {
-    if (!revealPath || !findNode(fullTree, revealPath)) return
+    if (!revealPath || !findNode(tree, revealPath)) return
     setFocusedPath(revealPath)
     setExpanded((current) => withAncestors(current, revealPath))
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
@@ -72,7 +69,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       row?.scrollIntoView({ block: 'center' })
       row?.focus({ preventScroll: true })
     }))
-  }, [fullTree, revealNonce, revealPath])
+  }, [tree, revealNonce, revealPath])
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(undefined)
@@ -174,26 +171,14 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
     setMenu({ x: event.clientX, y: event.clientY, node })
   }
 
-  return <section className="agent-project-explorer" aria-label="Explorador do projeto">
-    <header className="agent-drawer-heading">
-      <div><span className="panel-kicker">Workspace</span><strong>Explorer</strong></div>
-      <div className="agent-runtime-heading-actions">
-        <button type="button" className="agent-drawer-icon" onClick={() => void create('file')} aria-label="Novo ficheiro" title="Novo ficheiro"><Icon name="new-file" size={16}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={() => void create('directory')} aria-label="Nova pasta" title="Nova pasta"><Icon name="new-folder" size={16}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={() => setExpanded(new Set())} disabled={!expanded.size} aria-label="Recolher todas as pastas" title="Recolher todas as pastas"><Icon name="collapse" size={16}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={() => void refresh()} disabled={loading} aria-label="Atualizar ficheiros" title="Atualizar ficheiros"><Icon name="refresh" size={16}/></button>
-        <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar explorador" title="Fechar explorador"><Icon name="close" size={16}/></button>
-      </div>
-    </header>
-    {gitFiles.length ? <div className="agent-project-git-summary" aria-label="Resumo das alterações Git"><span><Icon name="git" size={12}/>{gitFiles.length} alterado{gitFiles.length === 1 ? '' : 's'}</span><span className="git-lines-added">+{gitTotals.additions}</span><span className="git-lines-deleted">−{gitTotals.deletions}</span></div> : null}
-    <div className="agent-project-tree" ref={treeRef} tabIndex={0} onKeyDown={(event) => {
+  return <section className="agent-project-explorer flex h-full min-h-0 flex-col bg-whx-bg text-whx-soft" aria-label="Explorador do projeto">
+    <ProjectExplorerHeader projectPath={session.project_path} expanded={Boolean(expanded.size)} loading={loading} onCreateFile={() => void create('file')} onCreateFolder={() => void create('directory')} onCollapse={() => setExpanded(new Set())} onRefresh={() => void refresh()} onClose={onClose}/>
+    {gitFiles.length ? <div className="flex min-h-[30px] shrink-0 items-center gap-2 border-b border-whx-border-soft px-3 text-[calc(10px*var(--ui-font-scale))] text-whx-faint" role="group" aria-label="Resumo das alterações Git" title={`${gitFiles.length} ficheiros alterados`}><span className="inline-flex items-center gap-1.5 text-whx-soft"><Icon name="git" size={13}/><strong className="font-mono text-[calc(10px*var(--ui-font-scale))]">{gitFiles.length}<span className="sr-only"> alterados</span></strong></span><span className="font-mono text-[calc(9px*var(--ui-font-scale))] text-whx-success">+{gitTotals.additions}</span><span className="font-mono text-[calc(9px*var(--ui-font-scale))] text-whx-danger">−{gitTotals.deletions}</span></div> : null}
+    <ProjectExplorerTree tree={tree} hiddenGitFiles={hiddenGitFiles} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} loading={loading} gitDiffLoadingPath={gitDiffLoadingPath} treeRef={treeRef} onKeyDown={(event) => {
       if (event.key === 'F2' && focused) { event.preventDefault(); void rename() }
       if (event.key === 'Delete' && focused) { event.preventDefault(); void remove() }
-    }}>
-      {hiddenGitFiles.length ? <div className="agent-tree-hidden-git"><span>Fora da árvore</span>{hiddenGitFiles.map((file) => <button type="button" key={file.path} className={`agent-tree-row file git-changed git-${file.status} git-virtual`} onClick={() => void openGitDiff(file.path)} disabled={!canOpenGitDiff(file) || gitDiffLoadingPath === file.path} title={canOpenGitDiff(file) ? `Ver diff Git de ${file.path}` : `Diff inline indisponível para ${file.path}`}><FileGlyph path={file.path} size={15}/><span className="agent-tree-name">{file.path}</span><GitChangeBadge file={file}/></button>)}</div> : null}
-      {loading && !entries.length ? <ContentSkeleton label="A carregar ficheiros do projeto" rows={7}/> : tree.length ? tree.map((node) => <TreeItem key={node.path} node={node} depth={0} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu}/>) : <div className="agent-drawer-empty">Este projeto não contém ficheiros visíveis no Explorer.</div>}
-    </div>
-    <footer className="agent-project-footer"><span>{entries.filter((entry) => entry.kind === 'file').length} ficheiros</span><span>{gitFiles.length ? `${gitFiles.length} com alterações Git` : 'Git limpo'}</span></footer>
+    }} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu} onOpenGitDiff={(path) => void openGitDiff(path)}/>
+    <footer className="flex min-h-[30px] shrink-0 items-center justify-between gap-2 border-t border-whx-border-soft bg-whx-surface px-3 text-[calc(9px*var(--ui-font-scale))] text-whx-faint"><span className="inline-flex items-center gap-1.5" role="group" aria-label={`${entries.filter((entry) => entry.kind === 'file').length} ficheiros no projeto`} title="Ficheiros no projeto"><Icon name="file" size={12}/>{entries.filter((entry) => entry.kind === 'file').length}</span><span className="inline-flex items-center gap-1.5" role="group" aria-label={gitFiles.length ? `${gitFiles.length} ficheiros com alterações Git` : 'Git limpo'} title={gitFiles.length ? 'Ficheiros com alterações Git' : 'Git limpo'}><Icon name="git" size={12}/>{gitFiles.length || 'OK'}</span></footer>
     {menu && <div className="explorer-context-menu agent-explorer-context-menu" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>
       {menu.node.kind === 'file' && <button type="button" onClick={() => { onOpen(menu.node.path); setMenu(undefined) }}><FileGlyph path={menu.node.path}/> Abrir no Editor</button>}
       {canOpenGitDiff(gitByPath.get(menu.node.path)) && <button type="button" onClick={() => { void openGitDiff(menu.node.path); setMenu(undefined) }}><Icon name="git" size={13}/> Ver alterações Git</button>}
@@ -206,103 +191,6 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
   </section>
 }
 
-function TreeItem({ node, depth, expanded, focusedPath, gitByPath, gitDirectoryCounts, onToggle, onOpen, onFocus, onContextMenu }: {
-  node: TreeNode
-  depth: number
-  expanded: Set<string>
-  focusedPath?: string
-  gitByPath: Map<string, GitWorkingFile>
-  gitDirectoryCounts: Map<string, number>
-  onToggle: (path: string) => void
-  onOpen: (path: string) => void
-  onFocus: (path: string) => void
-  onContextMenu: (event: MouseEvent, node: TreeNode) => void
-}) {
-  const open = expanded.has(node.path)
-  const fileGit = gitByPath.get(node.path)
-  const nestedChanges = gitDirectoryCounts.get(node.path) || 0
-  if (node.kind === 'directory') return <div className="agent-tree-group">
-    <button type="button" className={`agent-tree-row folder${focusedPath === node.path ? ' selected-node' : ''}${nestedChanges ? ' git-has-changes' : ''}${fileGit ? ` git-changed git-${fileGit.status}` : ''}`} data-workspace-path={node.path} style={{ paddingLeft: 9 + depth * 13 }} onClick={() => onToggle(node.path)} onContextMenu={(event) => onContextMenu(event, node)} title={node.path}>
-      <span className={`agent-tree-chevron ${open ? 'open' : ''}`}><Icon name="chevron" size={14}/></span><DirectoryGlyph path={node.path} size={15}/><span className="agent-tree-name">{node.name}</span>{nestedChanges ? <span className="agent-tree-git-count" title={`${nestedChanges} alteração${nestedChanges === 1 ? '' : 'ões'} dentro desta pasta`}>{nestedChanges}</span> : null}{fileGit ? <GitChangeBadge file={fileGit}/> : null}
-    </button>
-    {open && node.children.map((child) => <TreeItem key={child.path} node={child} depth={depth + 1} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} onToggle={onToggle} onOpen={onOpen} onFocus={onFocus} onContextMenu={onContextMenu}/>)}
-  </div>
-  return <button type="button" className={`agent-tree-row file${focusedPath === node.path ? ' selected-node' : ''}${fileGit ? ` git-changed git-${fileGit.status}` : ''}`} data-workspace-path={node.path} style={{ paddingLeft: 23 + depth * 13 }} onClick={() => { onFocus(node.path); onOpen(node.path) }} onContextMenu={(event) => onContextMenu(event, node)} title={`Abrir ${node.path}`} aria-label={`Abrir ${node.path}`}><FileGlyph path={node.path} size={15}/><span className="agent-tree-name">{node.name}</span>{fileGit ? <GitChangeBadge file={fileGit}/> : null}</button>
-}
-
-
-function canOpenGitDiff(file?: GitWorkingFile) {
-  return Boolean(file && file.kind !== 'submodule' && file.kind !== 'embedded_repository')
-}
-
-function GitChangeBadge({ file }: { file: GitWorkingFile }) {
-  const code = file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : file.status === 'unmerged' ? '!' : 'M'
-  const label = file.status === 'added' ? 'Adicionado' : file.status === 'deleted' ? 'Removido' : file.status === 'unmerged' ? 'Conflito' : 'Modificado'
-  return <span className={`agent-tree-git-status ${file.status}`} title={`${label} no Git · +${file.additions || 0} −${file.deletions || 0}`}><b>{code}</b>{file.additions ? <i className="git-lines-added">+{file.additions}</i> : null}{file.deletions ? <i className="git-lines-deleted">−{file.deletions}</i> : null}</span>
-}
-
-function changedDirectoryCounts(files: GitWorkingFile[]) {
-  const counts = new Map<string, number>()
-  for (const file of files) {
-    const parts = file.path.split('/'); parts.pop()
-    let current = ''
-    for (const part of parts) {
-      current = current ? `${current}/${part}` : part
-      counts.set(current, (counts.get(current) || 0) + 1)
-    }
-  }
-  return counts
-}
-
 function publishMutation(detail: WorkspaceMutation) { window.dispatchEvent(new CustomEvent('wharnex:workspace-files-changed', { detail })) }
 
-function buildTree(entries: FileEntry[]): TreeNode[] {
-  const root: TreeNode = { name: '', path: '', kind: 'directory', children: [] }
-  const directories = new Map<string, TreeNode>([['', root]])
-  for (const entry of entries.filter((item) => item.kind === 'directory').sort((a, b) => a.path.localeCompare(b.path))) ensureDir(root, directories, entry.path)
-  for (const entry of entries.filter((item) => item.kind === 'file').sort((a, b) => a.path.localeCompare(b.path))) {
-    const parts = entry.path.split('/'); const name = parts.pop() || entry.name; const parent = parts.join('/')
-    ensureDir(root, directories, parent).children.push({ name, path: entry.path, kind: 'file', children: [] })
-  }
-  sortTree(root)
-  return root.children
-}
-
-function ensureDir(root: TreeNode, map: Map<string, TreeNode>, path: string) {
-  if (map.has(path)) return map.get(path)!
-  let current = root; let built = ''
-  for (const part of path.split('/').filter(Boolean)) {
-    built = built ? `${built}/${part}` : part
-    let child = map.get(built)
-    if (!child) { child = { name: part, path: built, kind: 'directory', children: [] }; current.children.push(child); map.set(built, child) }
-    current = child
-  }
-  return current
-}
-
-function findNode(nodes: TreeNode[], path: string): TreeNode | undefined {
-  for (const node of nodes) {
-    if (node.path === path) return node
-    const child = findNode(node.children, path)
-    if (child) return child
-  }
-  return undefined
-}
-
-function withAncestors(current: Set<string>, path: string) {
-  const next = new Set(current)
-  const parts = path.split('/'); parts.pop()
-  let built = ''
-  for (const part of parts) { built = built ? `${built}/${part}` : part; next.add(built) }
-  return next
-}
-
-function parentPath(path: string) { const index = path.lastIndexOf('/'); return index > -1 ? path.slice(0, index) : '' }
-function validateLeafName(value: string) {
-  const clean = value.trim()
-  if (!clean) return 'Introduza um nome.'
-  if (clean === '.' || clean === '..' || clean.includes('/') || clean.includes('\\')) return 'Use apenas o nome do ficheiro/pasta, sem /, \\ ou segmentos ..'
-  return undefined
-}
-function sortTree(node: TreeNode) { node.children.sort((a, b) => a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1); node.children.forEach(sortTree) }
 function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }

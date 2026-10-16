@@ -71,20 +71,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.git-diff-modal > .git-diff-review {
-  min-height: 0;
-  border: 0;
-  border-radius: 0;
-}
 .git-worktree-diff-review { grid-template-columns: minmax(240px, 24%) minmax(0, 1fr); }
-.git-worktree-diff-review .git-diff-review-files-toolbar > .git-section-count { margin-left: auto; }
-.git-worktree-diff-review .git-diff-review-file-list > button:disabled { opacity: .52; cursor: not-allowed; }
 .git-worktree-diff-state { min-width: 0; min-height: 0; padding: 12px; overflow: auto; background: var(--theme-bg); }
 @media (max-width: 760px) {
   .git-worktree-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(112px, 28%) minmax(0, 1fr); }
-  .git-worktree-diff-review .git-diff-review-files { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); }
 }
-.git-diff-review.single-file { grid-template-columns: minmax(0, 1fr); }
 .git-diff-modal > .git-hint { margin: 0; padding: 6px 12px; border-top: 1px solid var(--theme-border-soft); }
 .git-commit-detail-modal { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .git-commit-detail-disclosure {

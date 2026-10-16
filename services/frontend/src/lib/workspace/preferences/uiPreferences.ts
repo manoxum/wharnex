@@ -53,7 +53,7 @@ export const DEFAULT_UI_PREFERENCES: UIPreferences = {
   uiFont: 'elegant',
   monoFont: 'jetbrains',
   scale: 1,
-  theme: 'original',
+  theme: 'jetbrains-darcula',
   accent: 'brand',
   contentScheme: 'follow-ui',
   density: 'default',

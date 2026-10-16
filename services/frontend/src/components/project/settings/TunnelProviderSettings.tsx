@@ -1,3 +1,5 @@
+import { Button, EmptyState } from '../../presentation/workbench'
+import { ConnectionSettingsFrame, ConnectionSaveBar, ConnectionStatus } from './connections'
 import { useEffect, useState } from "react";
 import { api } from "../../../lib/transport/http/api";
 import type {
@@ -24,6 +26,8 @@ export function TunnelProviderSettings({
     Record<string, { available: boolean; error?: string }>
   >({});
   const [showCatalog, setShowCatalog] = useState(false);
+  const [loadingError, setLoadingError] = useState('');
+  const [revision, setRevision] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   // The pool is normally adopted on save, so the banner has to distinguish
@@ -36,6 +40,7 @@ export function TunnelProviderSettings({
 
   useEffect(() => {
     let alive = true;
+    setLoadingError('');
     Promise.all([api.tunnelConfig(), api.tunnelProviders(), api.config()])
       .then(([stored, catalog, appConfig]) => {
         if (!alive) return;
@@ -54,15 +59,15 @@ export function TunnelProviderSettings({
         );
       })
       .catch((error) => {
-        if (alive)
-          onError(
-            messageOf(error, "Não foi possível carregar os providers de túnel"),
-          );
+        if (alive) {
+          const message = messageOf(error, "Não foi possível carregar os providers de túnel");
+          setLoadingError(message); onError(message);
+        }
       });
     return () => {
       alive = false;
     };
-  }, [onError]);
+  }, [onError, revision]);
 
   function add(provider: TunnelProvider) {
     setSaved(false);
@@ -223,43 +228,11 @@ export function TunnelProviderSettings({
     }
   }
 
-  if (!instances || !providers)
-    return (
-      <div className="settings-loading compact">
-        <span className="settings-spinner" />A carregar providers de túnel…
-      </div>
-    );
+  if (!instances || !providers) return loadingError ? <EmptyState icon="alert" title="Não foi possível carregar os túneis" description={loadingError} action={<Button icon="refresh" onClick={() => setRevision((value) => value + 1)}>Tentar novamente</Button>}/>
+    : <p className="p-6 text-whx-label text-whx-faint" role="status">A carregar providers de túnel…</p>;
 
   return (
-    <section className="remote-storage-settings tunnel-provider-settings">
-      <div className="remote-storage-hero">
-        <div className="remote-storage-glyph">
-          <Icon name="network" size={22} />
-        </div>
-        <div>
-          <span className="eyebrow">Transporte para o ChatGPT</span>
-          <h3>Túneis de verificação</h3>
-          <p>
-            Os túneis configurados ficam disponíveis como canais individuais
-            no composer; cada chat decide quais publicar. O bundle ZIP faz parte
-            do protocolo base e é sempre enviado.
-          </p>
-        </div>
-        <button
-          className="secondary-button"
-          onClick={() => setShowCatalog((value) => !value)}
-        >
-          <Icon name={showCatalog ? "close" : "plus"} size={14} />
-          {showCatalog ? "Fechar catálogo" : "Adicionar provider"}
-        </button>
-      </div>
-      <div className="remote-storage-retention">
-        <Icon name="shield" size={15} />
-        <span>
-          Providers permanentes preservam o mesmo DNS após reinícios e reidratam
-          requests em curso. Cada request mantém um namespace secreto e isolado.
-        </span>
-      </div>
+    <ConnectionSettingsFrame title="Túneis de verificação" description="Os túneis configurados ficam disponíveis como canais individuais no composer; cada chat decide quais publicar. O bundle ZIP faz parte do protocolo base e é sempre enviado." notice="Providers permanentes preservam o mesmo DNS após reinícios e reidratam requests em curso. Cada request mantém um namespace secreto e isolado." catalogOpen={showCatalog} onCatalog={() => setShowCatalog((value) => !value)}>
       <label className="tunnel-instance-identity">
         <span>Nome desta instância Wharnex</span>
         <input
@@ -276,19 +249,7 @@ export function TunnelProviderSettings({
           sensíveis.
         </small>
       </label>
-      {saved ? (
-        <div className="remote-storage-restart" role="status">
-          <span />
-          <div>
-            <strong>Configuração guardada</strong>
-            <small>
-              {restartRequired
-                ? "Reinicie o Wharnex para ativar o novo provider de túnel."
-                : "O provider de túnel já está ativo."}
-            </small>
-          </div>
-        </div>
-      ) : null}
+      {saved && <ConnectionStatus warning={restartRequired}>{restartRequired ? 'Reinicie o Wharnex para ativar o novo provider de túnel.' : 'O provider de túnel já está ativo.'}</ConnectionStatus>}
       {showCatalog ? (
         <section
           className="provider-catalog"
@@ -531,21 +492,8 @@ export function TunnelProviderSettings({
           );
         })}
       </div>
-      <div className="remote-storage-actions">
-        <span>
-          {instances.length}{" "}
-          {instances.length === 1 ? "túnel configurado" : "túneis configurados"}
-        </span>
-        <button
-          className="primary-button"
-          disabled={saving}
-          onClick={() => void save()}
-        >
-          <Icon name="save" size={14} />
-          {saving ? "A guardar…" : "Guardar configuração"}
-        </button>
-      </div>
-    </section>
+      <ConnectionSaveBar count={instances.length} noun={instances.length === 1 ? 'túnel configurado' : 'túneis configurados'} busy={saving} onSave={() => void save()}/>
+    </ConnectionSettingsFrame>
   );
 }
 

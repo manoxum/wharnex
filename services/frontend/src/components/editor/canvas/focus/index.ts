@@ -1,0 +1,1 @@
+export { focusEditorWhenAvailable } from './editorFocus'

@@ -1,5 +1,10 @@
 # UI/UX SoT
 
+The operator-requested 2026-10-15 workbench redesign is defined in
+`WORKBENCH_DESIGN.md`. Its information architecture and progressive presentation
+supersede older visual arrangements only for the migrated surfaces, preserving
+all functional and security contracts and the `TABS.md` resource exceptions.
+
 Wharness is an engineering workspace, not a chatbot skin.
 
 - two-column desktop workspace with chat on the left and execution intelligence on the right;

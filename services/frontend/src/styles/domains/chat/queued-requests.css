@@ -89,19 +89,6 @@
 .workspace-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .workspace-main-row { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; }
 .workspace-main-row > .agent-activity-bar { flex: 0 0 42px; grid-column: auto; grid-row: auto; }
-/* Side drawers default to a fifth of the usable shell so that, when both are
-   open, the centre remains visually dominant at roughly 60%. Live inline
-   widths and the splitters remain authoritative after the initial layout. */
-/* flex-grow stays 0: a drawer's splitter is the only thing that should ever
-   widen it, and the center pane (the only flex-grow:1 sibling) is what
-   absorbs extra viewport space by design - growing the drawers too would let
-   dragging one splitter visibly resize the far drawer as well, since grown
-   space is distributed across every flex-grow item, not just the dragged
-   pair. flex-shrink is 1 (not the previous 0), so a drawer still gives up
-   its preferred width, without ever exceeding it, once both side drawers
-   plus the center no longer fit the viewport. */
-.workspace-main-row > .agent-drawer { flex: 0 1 var(--workspace-drawer-width, calc((100% - 100px) / 5)); min-width: 0; grid-column: auto; grid-row: auto; border-right: 0; }
-.workspace-main-row > .agent-drawer-splitter { flex: 0 0 6px; grid-column: auto; grid-row: auto; }
 .workspace-mode-stack { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .workspace-rail-terminal { margin-top: 0; }
 .workspace-body.drawer-open .agent-workspace { --agent-chat-width: calc((100% - 6px) / 2); }
@@ -125,9 +112,7 @@
 .composer { min-height: 180px; max-height: min(420px, 54vh); height: 180px; overflow: auto; resize: vertical; scrollbar-width: thin; }
 .composer-scroll-area { min-height: 100%; display: flex; flex-direction: column; }
 .composer textarea { flex: 0 0 auto; width: 100%; min-height: 76px; max-height: none; padding: 14px 15px 9px; overflow: hidden; resize: none; font-size: calc(14px * var(--ui-font-scale)); line-height: 1.62; letter-spacing: .002em; }
-.composer-footer { margin-top: auto; padding: 6px 9px 9px; }
 .composer-toolbar-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; }
-.composer-action-row { min-width: 0; flex-wrap: wrap; row-gap: 6px; }
 .composer-toolbar-row .send-button { width: 31px; height: 31px; min-width: 31px; align-self: center; justify-self: end; border-radius: 9px; }
 .composer-hint { color: #858c80; font-size: calc(8.5px * var(--ui-font-scale)); line-height: 1.45; padding: 0 2px; }
 

@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const drawer = readFileSync(resolve(process.cwd(), 'src/components/git/review/GitDrawer.tsx'), 'utf8')
-const modal = readFileSync(resolve(process.cwd(), 'src/components/git/review/GitOperationModal.tsx'), 'utf8')
+const modal = readFileSync(resolve(process.cwd(), 'src/components/git/review/GitOperationModal.tsx'), 'utf8') + readFileSync(resolve(process.cwd(), 'src/components/git/review/operations/GitOperationReview.tsx'), 'utf8')
 const api = readFileSync(resolve(process.cwd(), 'src/lib/transport/http/api.ts'), 'utf8')
 const flow = readFileSync(resolve(process.cwd(), 'src/lib/git/workflow/useGitOperationFlow.ts'), 'utf8')
 

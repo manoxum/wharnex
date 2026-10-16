@@ -16,14 +16,6 @@
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 .terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #444a3e; background-clip: padding-box; }
 
-.editor-run-menu { position: relative; }
-.editor-run-menu > summary { height: 22px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid #30362d; border-radius: 4px; background: #20231e; color: #7f8a77; cursor: pointer; list-style: none; }
-.editor-run-menu > summary::-webkit-details-marker { display: none; }
-.editor-run-menu[open] > summary { background: #30372d; color: #d5decf; }
-.editor-run-menu > div { position: absolute; z-index: 10020; right: 0; top: 26px; width: min(420px, 60vw); max-height: 320px; padding: 5px; display: grid; gap: 2px; overflow: auto; border: 1px solid #3b4238; border-radius: 8px; background: #1b1e19; box-shadow: 0 18px 44px rgba(0,0,0,.35); }
-.editor-run-menu > div button { height: auto; min-height: 40px; padding: 6px 8px; display: grid; gap: 3px; justify-items: start; text-align: left; }
-.editor-run-menu > div button span { color: #cbd3c5; font: 9px var(--ui-font-family); }
-.editor-run-menu > div button code { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #7f8b78; font: 8px var(--mono-font-family); }
 .editor-git-diff { min-height: 420px; }
 .editor-git-diff-empty { flex: 1; min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 7px; color: #788173; text-align: center; }
 .editor-git-diff-empty strong { color: #c4cdc0; font-size: calc(11px * var(--ui-font-scale)); }
@@ -38,11 +30,6 @@
 
 /* Database Studio — larger type, object workbench and data explorer. */
 .database-explorer-panel { min-width: 0; background: var(--theme-bg); font-size: calc(11px * var(--ui-font-scale)); }
-.database-studio-header { min-height: 62px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--theme-border-soft); background: linear-gradient(180deg, var(--theme-elevated), var(--theme-surface)); }
-.database-studio-identity { min-width: 0; display: flex; align-items: center; gap: 10px; }
-.database-studio-identity > div { min-width: 0; display: grid; gap: 2px; }
-.database-studio-identity > div > span { color: var(--theme-text-muted); font-size: calc(9px * var(--ui-font-scale)); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.database-studio-identity strong { color: var(--theme-text); font-size: calc(14px * var(--ui-font-scale)); letter-spacing: -.01em; }
 .database-studio-mark { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border)); border-radius: 10px; background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-elevated)); color: var(--theme-accent); box-shadow: inset 0 1px color-mix(in srgb, white 35%, transparent); }
 .database-studio-mark.large { width: 46px; height: 46px; border-radius: 14px; }
 .database-health { min-height: 25px; padding: 0 9px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--theme-border); border-radius: 999px; background: var(--theme-surface); color: var(--theme-text-muted); font-size: calc(9px * var(--ui-font-scale)); font-weight: 700; white-space: nowrap; }

@@ -26,17 +26,17 @@ export function BrowserMonitorLinks({ agents, selectedKey, onSelect }: {
   }, [])
 
   return <div aria-label="Chats com links GPT">
-    {loading && <p className="px-2 py-3 text-[11px] text-slate-400" role="status">A carregar chats…</p>}
-    {error && <p className="px-2 py-3 text-[11px] text-rose-300" role="alert">{error}</p>}
-    {!loading && !error && !chats.length && <p className="rounded-xl border border-dashed border-white/10 p-4 text-[12px] text-slate-400">Nenhum chat criado tem um link GPT associado.</p>}
+    {loading && <p className="px-2 py-3 text-whx-caption text-whx-faint" role="status">A carregar chats…</p>}
+    {error && <p className="px-2 py-3 text-whx-caption text-whx-danger" role="alert">{error}</p>}
+    {!loading && !error && !chats.length && <p className="rounded-xl border border-dashed border-whx-border-soft p-4 text-whx-label text-whx-faint">Nenhum chat criado tem um link GPT associado.</p>}
     <div className="space-y-1.5">{chats.map((chat) => {
       const agent = agentForChat(agents, chat)
       const selected = selectedKey === chat.key
       return <button key={chat.key} type="button" aria-pressed={selected} onClick={() => onSelect(chat)} title={chat.url}
-        className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${selected ? 'border-cyan-400/45 bg-[#0c2835]! shadow-[inset_3px_0_0_0_#22d3ee]' : 'border-white/[.06] bg-transparent! hover:border-white/15 hover:bg-white/[.045]!'}`}>
-        <span className="flex items-center justify-between gap-2"><strong className="min-w-0 truncate text-[12px] font-semibold text-slate-100">{chat.title}</strong><span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{chat.kind === 'workspace' ? 'Chat' : chat.kind === 'planning' ? 'Plano' : 'Tarefa'}</span></span>
-        <span className="mt-1 block truncate font-mono text-[10px] text-cyan-300">{chat.url}</span>
-        <span className="mt-1 block text-[10px] text-slate-400">{agent ? `${agent.label} · instância associada` : 'Visualização efêmera ao selecionar'}{chat.archived ? ' · arquivado' : ''}</span>
+        className={`w-full rounded-xl border px-3 py-2.5 text-left transition ${selected ? 'border-whx-accent bg-whx-hover! shadow-[inset_2px_0_0_var(--theme-accent)]' : 'border-whx-border-soft bg-transparent! hover:border-whx-border-soft hover:bg-whx-muted!'}`}>
+        <span className="flex items-center justify-between gap-2"><strong className="min-w-0 truncate text-whx-label font-semibold text-whx-text">{chat.title}</strong><span className="shrink-0 text-whx-caption uppercase tracking-wide text-whx-faint">{chat.kind === 'workspace' ? 'Chat' : chat.kind === 'planning' ? 'Plano' : 'Tarefa'}</span></span>
+        <span className="mt-1 block truncate font-mono text-whx-caption text-whx-accent">{chat.url}</span>
+        <span className="mt-1 block text-whx-caption text-whx-faint">{agent ? `${agent.label} · instância associada` : 'Visualização efêmera ao selecionar'}{chat.archived ? ' · arquivado' : ''}</span>
       </button>
     })}</div>
   </div>

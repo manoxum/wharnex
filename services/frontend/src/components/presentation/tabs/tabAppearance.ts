@@ -39,7 +39,7 @@ export const tabButtonAppearance: Record<TabAppearance, string> = {
   `,
   document: `
     rounded-none border-0 shadow-none h-full min-h-0 min-w-0 flex-1 justify-start gap-1.5
-    py-0 pl-2.5 pr-0 text-[10px]! font-medium! text-inherit
+    py-0 pl-2.5 pr-0 text-[length:calc(11px*var(--ui-font-scale))]! font-medium! text-inherit
     focus-visible:outline-[var(--theme-accent)]!
   `,
   workbench: `${workbenchChrome} shrink-0 grow justify-center`,

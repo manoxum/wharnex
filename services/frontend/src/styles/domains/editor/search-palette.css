@@ -70,13 +70,6 @@
   }
 }
 
-.agent-tree-row.selected-node {
-  background: color-mix(in srgb, var(--theme-accent-soft) 46%, transparent);
-  color: var(--theme-text);
-  box-shadow: inset 2px 0 var(--theme-accent);
-}
-
-
 .database-connection-section {
   border: 0;
   border-top: 1px solid var(--theme-border-soft);

@@ -1,3 +1,7 @@
+import sharedHeaderSource from '../../../../components/presentation/workbench/content.tsx?raw'
+import dockerHeaderSource from '../../../../components/docker/services/presentation/DockerPanelHeader.tsx?raw'
+import libraryHeaderSource from '../../../../components/artifacts/explorer/library/ArtifactLibraryHeader.tsx?raw'
+import databaseSource from '../../../../components/database/browser/DatabaseExplorerPanel.tsx?raw'
 import { tabBarSource, tabButtonSource, terminalTabsSource } from '../../../cascade/tabStyles'
 import { describe, expect, it } from 'vitest'
 import { css, lastRule } from '../../../cascade/styleRules'
@@ -26,10 +30,12 @@ describe('premium optical refinement', () => {
   })
 
   it('uses the same optical hierarchy for Docker, Library and Database Studio', () => {
-    expect(lastRule('.docker-services-header')).toContain('min-height: 48px')
-    expect(lastRule('.artifact-explorer-heading')).toContain('min-height: 46px')
-    expect(lastRule('.artifact-explorer-heading strong')).toContain('font-size: var(--module-title-size)')
-    expect(lastRule('.database-studio-header')).toContain('background: var(--theme-surface)')
+    expect(dockerHeaderSource).toContain('<PanelHeader')
+    expect(libraryHeaderSource).toContain('<PanelHeader')
+    expect(databaseSource).toContain('<PanelHeader')
+    expect(sharedHeaderSource).toContain('min-h-14')
+    expect(sharedHeaderSource).toContain('!text-whx-title')
+    expect(sharedHeaderSource).toContain('bg-whx-surface')
     expect(tabButtonSource).toContain('text-sm!')
   })
 })

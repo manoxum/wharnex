@@ -1,25 +1,12 @@
-.settings-premium-card:is(section, div) {
-  padding: var(--space-4) 0;
-  border: 0;
-  border-top: 1px solid var(--theme-border-soft);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.settings-premium-grid > .settings-premium-card:first-child { border-top: 0; }
-.settings-navigation button.active:not(:disabled) {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: inset 2px 0 var(--theme-accent);
-}
-.context-settings-dialog input:not([type='checkbox']):not([type='radio']),
-.context-settings-dialog select,
+
+[data-workbench-settings] input:not([type='checkbox']):not([type='radio']),
+[data-workbench-settings] select,
 .quick-switcher-select-shell,
 .panel-search-field {
   min-height: var(--control-md);
   border-radius: var(--radius-control);
 }
-.context-settings-dialog input[type='checkbox'] {
+[data-workbench-settings] input[type='checkbox'] {
   width: 16px;
   height: 16px;
 }
@@ -65,16 +52,7 @@
 
 
 /* Workbench visual consolidation — final geometry and interaction grammar. */
-.workspace-topbar {
-  height: 44px;
-  flex-basis: 44px;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
-  gap: var(--space-3);
-  padding-inline: var(--space-3);
-  border-bottom-color: var(--theme-border);
-  background: var(--theme-surface);
-  color: var(--theme-text);
-}
+
 .workspace-identity { gap: var(--space-2); }
 .workspace-identity > div:last-child { min-width: 0; display: flex; align-items: baseline; gap: var(--space-2); }
 .workspace-identity strong { color: var(--theme-text); font-size: calc(9px * var(--ui-font-scale)); font-weight: 650; }

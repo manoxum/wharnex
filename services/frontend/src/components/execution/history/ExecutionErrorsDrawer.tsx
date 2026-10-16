@@ -1,18 +1,22 @@
+import { IconButton, PanelHeader } from '../../presentation/workbench'
 import { WorkbenchTabs } from '../../presentation/tabs'
 import { useEffect, useMemo, useState } from 'react'
 import type { ExecutionErrorRecord, Session } from '../../../types'
 import type { WorkspaceChat } from '../../../lib/chat/history/workspaceMemory'
 import { api } from '../../../lib/transport/http/api'
 import { Icon } from '../../presentation/chrome/Icon'
+import { ExecutionProblemFilters } from './diagnostics'
 
 type Filter = 'all' | 'open' | 'resolved'
 type ErrorView = ExecutionErrorRecord & { chatTitle: string }
 
-export function ExecutionErrorsDrawer({ chats, currentSession, activeChatId, onClose }: {
+export function ExecutionErrorsDrawer({ chats, currentSession, activeChatId, onClose, onSummary, embedded = false }: {
   chats: WorkspaceChat[]
   currentSession: Session
   activeChatId: string
   onClose: () => void
+  onSummary?: (count: number | null) => void
+  embedded?: boolean
 }) {
   const [items, setItems] = useState<ErrorView[]>([])
   const [filter, setFilter] = useState<Filter>('all')
@@ -52,6 +56,7 @@ export function ExecutionErrorsDrawer({ chats, currentSession, activeChatId, onC
     resolved: items.filter((item) => item.status === 'resolved').length,
     kinds: new Set(items.map((item) => item.failure_kind).filter(Boolean)).size,
   }), [items])
+  useEffect(() => { onSummary?.(loading || loadError ? null : totals.total) }, [loading, loadError, totals.total, onSummary])
   const distribution = useMemo(() => {
     const counts = new Map<string, number>()
     for (const item of items) counts.set(item.failure_kind || 'não classificado', (counts.get(item.failure_kind || 'não classificado') || 0) + 1)
@@ -63,21 +68,21 @@ export function ExecutionErrorsDrawer({ chats, currentSession, activeChatId, onC
   }, [filter, items, query])
   const chosen = visible.find((item) => item.id === selected) || visible[0]
 
-  return <section className="execution-errors-drawer" aria-label="Histórico estruturado de erros de execução">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Projeto inteiro</span><strong>Erros de execução</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar drawer"><Icon name="close" size={13}/></button></header>
-    <div className="execution-errors-summary" aria-label="Resumo de ocorrências">
+  return <section className={`execution-errors-drawer ${embedded ? '!flex !h-full !min-h-0 !flex-col' : '!grid-rows-[auto_auto_auto_auto_minmax(0,1fr)]'}`} aria-label="Histórico estruturado de erros de execução">
+    {!embedded && <PanelHeader title="Erros de execução" description="Ocorrências, causas e soluções do projeto." icon="alert" actions={<IconButton label="Fechar drawer" icon="close" onClick={onClose}/>}/>}
+    {!embedded && <div className="execution-errors-summary" aria-label="Resumo de ocorrências">
       <span><b>{totals.total}</b><small>Total</small></span><span className={totals.open ? 'danger' : ''}><b>{totals.open}</b><small>Abertas</small></span><span><b>{totals.resolved}</b><small>Resolvidas</small></span><span><b>{totals.kinds}</b><small>Tipos</small></span>
-    </div>
-    <div className="execution-errors-toolbar">
+    </div>}
+    {embedded ? <ExecutionProblemFilters filter={filter} onFilter={setFilter} query={query} onQuery={setQuery} totals={totals} distribution={distribution}/> : <div className="execution-errors-toolbar">
       <WorkbenchTabs className="min-w-0 flex-1" label="Estado das ocorrências" value={filter} onChange={setFilter} items={[
         { id: 'all', label: 'Todas', icon: 'list', badge: totals.total }, { id: 'open', label: 'Abertas', icon: 'alert', badge: totals.open },
         { id: 'resolved', label: 'Resolvidas', icon: 'check', badge: totals.resolved },
       ]}/>
       <label><Icon name="search" size={13}/><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Erro, causa, request, plano…" aria-label="Pesquisar erros de execução"/></label>
-    </div>
-    {distribution.length ? <div className="execution-errors-distribution" aria-label="Distribuição por tipo de falha">{distribution.map(([kind, count]) => <div key={kind}><span>{kind}</span><i><b style={{ width: `${Math.max(8, Math.round((count / totals.total) * 100))}%` }}/></i><strong>{count}</strong></div>)}</div> : null}
+    </div>}
+    {!embedded && distribution.length ? <div className="execution-errors-distribution" aria-label="Distribuição por tipo de falha">{distribution.map(([kind, count]) => <div key={kind}><span>{kind}</span><i><b style={{ width: `${Math.max(8, Math.round((count / totals.total) * 100))}%` }}/></i><strong>{count}</strong></div>)}</div> : null}
     {loadError ? <div className="project-activity-status warning">{loadError}</div> : null}
-    {loading && !items.length ? <div className="agent-drawer-empty">A carregar ocorrências…</div> : !visible.length ? <div className="agent-drawer-empty">{items.length ? 'Nenhuma ocorrência corresponde aos filtros.' : 'Ainda não existem erros de execução registados.'}</div> : <div className="execution-errors-layout">
+    {loading && !items.length ? <div className="agent-drawer-empty">A carregar ocorrências…</div> : !visible.length ? <div className="agent-drawer-empty">{items.length ? 'Nenhuma ocorrência corresponde aos filtros.' : 'Ainda não existem erros de execução registados.'}</div> : <div className={`execution-errors-layout ${embedded ? 'flex-1' : ''}`}>
       <div className="execution-errors-list" role="list">{visible.map((item) => <button key={item.id} type="button" role="listitem" className={`${chosen?.id === item.id ? 'active ' : ''}${item.status === 'resolved' ? 'resolved' : 'open'}`} onClick={() => setSelected(item.id)}><span><b>{item.status === 'resolved' ? 'Resolvida' : 'Aberta'}</b>{item.failure_kind || 'não classificado'}</span><strong>{item.error || item.cause || 'Falha de execução'}</strong><small>{item.chatTitle} · {formatDate(item.occurred_at)}</small></button>)}</div>
       {chosen ? <ErrorDetail item={chosen}/> : null}
     </div>}

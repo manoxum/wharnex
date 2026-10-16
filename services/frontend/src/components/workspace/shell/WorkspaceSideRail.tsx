@@ -1,59 +1,30 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ComponentProps } from 'react'
-import type { EvolutionKnowledgeRef, HarnessEvent, ProjectTodo, Session, TerminalRunInput } from '../../../types'
-import { ChatPanel } from '../../chat/panel/ChatPanel'
-import { Icon } from '../../presentation/chrome/Icon'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { desktopWindowScope } from '../../../lib/project/context/projectBindings'
 import { api } from '../../../lib/transport/http/api'
-import { summarizeAttention, type AttentionItem } from '../../../lib/attention/center/attentionCenter'
-import type { ExecutionFIFOItem } from '../../../lib/execution/history/executionQueueView'
-import { AttentionList } from '../../attention/center/AttentionList'
 import { PanelSkeleton } from '../../presentation/chrome/Skeleton'
 import { DEFAULT_WORKSPACE_RAIL_LAYOUT, type WorkspaceRailSide, type WorkspaceTool } from '../../../lib/workspace/layout/workspaceRailLayout'
 import { defaultSidePanelWidth } from '../../../lib/workspace/preferences/workbenchPreferences'
 import { WORKSPACE_DRAWERS, workspaceDrawerLabel, type Drawer } from '../../../lib/workspace/layout/workspaceDrawer'
-import { drawerResizeCeiling, WORKBENCH_SIDE_PANEL_MIN_PX } from '../../../lib/workspace/layout/workbenchResize'
 import { InternalWindowPersistenceContext, usePersistentInternalWindowOwners } from '../../../lib/workspace/layout/internalWindowPersistence'
-import { ChatManagementDrawer } from '../../chat/panel/ChatManagementDrawer'
 import { useUITestingContextSync } from '../../project/ui-testing/useUITestingContextSync'
-import { isWorkspaceTool, workspaceToolMeta } from './workspaceToolPresentation'
-
+import { isWorkspaceTool } from './workspaceToolPresentation'
+import { workspaceDrawerClass } from './workspaceDrawerSizing'
+import { useSupportingPanel, useSupportingResize, useToolWindowMaximize } from './layout'
+import { WorkspaceNavigation } from './navigation'
+import { PanelOptions, WorkspaceDrawerContent, loadPanelFontScales, savePanelFontScales, rootUIFontScale } from './panels'
+import type { WorkspaceSideRailProps } from './panels/panelTypes'
 export type { Drawer } from '../../../lib/workspace/layout/workspaceDrawer'
-
-// Every drawer below is only ever rendered once the operator opens it, and
-// most (Git graph, Postgres browser, artifact/knowledge explorers, runtime
-// and task inspectors) are opened rarely if at all in a given session. They
-// were still statically imported, so their code shipped in - and had to be
-// parsed before - the very first paint. Loading each one's chunk on first
-// open instead keeps that cost off the startup path entirely.
-const AgentProjectExplorer = lazy(() => import('../../agent/explorer/AgentProjectExplorer').then((m) => ({ default: m.AgentProjectExplorer })))
-const ExecutionErrorsDrawer = lazy(() => import('../../execution/history/ExecutionErrorsDrawer').then((m) => ({ default: m.ExecutionErrorsDrawer })))
-const EvolutionEvidenceDrawer = lazy(() => import('../../project/knowledge/EvolutionEvidenceDrawer').then((m) => ({ default: m.EvolutionEvidenceDrawer })))
-const ProjectKnowledgeDrawer = lazy(() => import('../../project/knowledge/ProjectKnowledgeDrawer').then((m) => ({ default: m.ProjectKnowledgeDrawer })))
-const GitDrawer = lazy(() => import('../../git/review/GitDrawer').then((m) => ({ default: m.GitDrawer })))
-const AgentRuntimeDrawer = lazy(() => import('../../agent/runtime/AgentRuntimeDrawer').then((m) => ({ default: m.AgentRuntimeDrawer })))
-const CodexPanel = lazy(() => import('../../codex/surface').then((m) => ({ default: m.CodexPanel })))
-const ProjectTasksDrawer = lazy(() => import('../../project/tasks/ProjectTasksDrawer').then((m) => ({ default: m.ProjectTasksDrawer })))
-const ArtifactExplorerPanel = lazy(() => import('../../artifacts/explorer/ArtifactExplorerPanel').then((m) => ({ default: m.ArtifactExplorerPanel })))
-const DatabaseExplorerPanel = lazy(() => import('../../database/browser/DatabaseExplorerPanel').then((m) => ({ default: m.DatabaseExplorerPanel })))
-const ProjectTodoPanel = lazy(() => import('../../project/tasks/ProjectTodoPanel').then((m) => ({ default: m.ProjectTodoPanel })))
-const DockerServicesPanel = lazy(() => import('../../docker/services/DockerServicesPanel').then((m) => ({ default: m.DockerServicesPanel })))
-const UITestingPanel = lazy(() => import('../../project/ui-testing/UITestingPanel').then((m) => ({ default: m.UITestingPanel })))
+export type { WorkspaceSideRailProps } from './panels/panelTypes'
 
 function DrawerFallback() {
   return <PanelSkeleton/>
 }
 
 const WORKSPACE_DRAWER_WIDTH_KEY = 'whx.workspace.drawer-width'
-const WORKSPACE_RAIL_PX = 44
-// A fifth of the usable workbench, so opening both side panels lands near the
-// 20% / 60% / 20% split (see lib/workbenchPreferences) rather than on a fixed
-// pixel width that means a different share on every screen.
+// Compatibility fallback; live allocation applies per-tool content bounds.
 const WORKSPACE_RIGHT_DRAWER_DEFAULT_PX = 460
-const TOOL_DRAG_TYPE = 'application/x-wharnex-workspace-tool'
-const PANEL_FONT_SCALE_KEY = 'whx.workspace.panel-font-scales.v1'
 const PANEL_FONT_SCALE_MIN = 0.8
 const PANEL_FONT_SCALE_MAX = 1.4
-const PANEL_FONT_SCALE_STEP = 0.1
 const EMPTY_WORKSPACE_RAIL_TOOLS: WorkspaceTool[] = []
 const DEFAULT_STANDALONE_RAIL_TOOLS: WorkspaceTool[] = (() => {
   const base = [...DEFAULT_WORKSPACE_RAIL_LAYOUT.left, ...DEFAULT_WORKSPACE_RAIL_LAYOUT.pinned.left]
@@ -65,65 +36,20 @@ function scopedKey(prefix: string, side: WorkspaceRailSide) { return `${prefix}:
 function loadWorkspaceDrawerWidth(side: WorkspaceRailSide) { const fallback = defaultSidePanelWidth() || (side === 'right' ? WORKSPACE_RIGHT_DRAWER_DEFAULT_PX : 0); try { return Number(localStorage.getItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY, side))) || fallback } catch { return fallback } }
 function saveWorkspaceDrawerWidth(side: WorkspaceRailSide, width: number) { try { localStorage.setItem(scopedKey(WORKSPACE_DRAWER_WIDTH_KEY, side), String(width)) } catch { /* best effort */ } }
 
-export type WorkspaceSideRailProps = {
-  session: Session
-  busy: boolean
-  drawer: Drawer
-  onDrawer: (next: Drawer) => void
-  chats: ComponentProps<typeof ChatPanel>['chats']
-  chatProps?: ComponentProps<typeof ChatPanel>
-  savedChats?: ComponentProps<typeof ChatPanel>['archivedChats']
-  archivedChats: ComponentProps<typeof ChatPanel>['archivedChats']
-  activeChatId: string
-  activeEvents: HarnessEvent[]
-  attentionItems: AttentionItem[]
-  attentionHistoryItems?: AttentionItem[]
-  executionFIFO: ExecutionFIFOItem[]
-  activeExecutionCount: number
-  onOpenAttention: (item: AttentionItem) => Promise<void>
-  onAttentionAction: (item: AttentionItem) => Promise<void>
-  onRestoreSavedChat?: (chatId: string) => Promise<void>
-  onArchiveSavedChat?: (chatId: string) => Promise<void>
-  onRestoreChat: ComponentProps<typeof ChatPanel>['onRestoreChat']
-  onDeleteArchivedChat: ComponentProps<typeof ChatPanel>['onDeleteArchivedChat']
-  onRenameChat: ComponentProps<typeof ChatPanel>['onRenameChat']
-  onGenerateChatTitle: ComponentProps<typeof ChatPanel>['onGenerateChatTitle']
-  onOpenFile: (path: string) => void
-  explorerRevealPath?: string
-  explorerRevealNonce?: number
-  onAnalyzeEvolution?: (ids: string[], knowledgeRefs?: EvolutionKnowledgeRef[], files?: File[], knowledgeOnly?: boolean) => Promise<void>
-  onConsolidateKnowledge?: () => Promise<void>
-  onError: (message: string) => void
-  onSession?: (session: Session) => void
-  onResolveConflictWithGPT?: (session: Session) => Promise<void>
-  onOpenGitConflictChat?: (session: Session) => Promise<void>
-  terminalOpen: boolean
-  onToggleTerminal: () => void
-  onRunInTerminal?: (input: TerminalRunInput) => void
-  onGoToChat?: (chatId?: string, sessionId?: string) => void
-  onGoToOrchestrator?: () => void
-  onPromoteTodoToChat?: (todo: ProjectTodo) => Promise<void>
-  onPromoteTodoToCurrentChat?: (todo: ProjectTodo) => Promise<void>
-  onLocateTodoChat?: (chatId: string) => void
-  onFollowInstance?: (agentId: string, chatId?: string, sessionId?: string) => void
-  onFocusProject?: (projectPath: string) => void
-  side?: WorkspaceRailSide
-  tools?: WorkspaceTool[]
-  pinnedTools?: WorkspaceTool[]
-  onMoveTool?: (tool: WorkspaceTool, side: WorkspaceRailSide, before?: WorkspaceTool, pinned?: boolean) => void
-  drawerWidth?: number
-  onDrawerWidth?: (width: number) => void
-}
 
 export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
-  const { session, busy, drawer, onDrawer, archivedChats, attentionItems, executionFIFO, onError } = props
-  const attentionHistoryItems = props.attentionHistoryItems || []
+  const { session, drawer, onDrawer, archivedChats } = props
   const savedChats = props.savedChats || []
   const side = props.side || 'left'
   const tools = props.tools || DEFAULT_STANDALONE_RAIL_TOOLS
   const pinnedTools = props.pinnedTools || EMPTY_WORKSPACE_RAIL_TOOLS
   const [localDrawerWidth, setLocalDrawerWidth] = useState(() => loadWorkspaceDrawerWidth(side))
   const drawerWidth = props.drawerWidth || localDrawerWidth
+  const geometry = useSupportingPanel(side, drawer, drawerWidth, session.project_path)
+  const toolWindow = useToolWindowMaximize(geometry.root, drawer, session.project_path)
+  const resize = useSupportingResize(geometry.root, side, drawer, session.project_path, (width) => {
+    setLocalDrawerWidth(width); saveWorkspaceDrawerWidth(side, width); props.onDrawerWidth?.(width)
+  })
   const [pendingCommitCount, setPendingCommitCount] = useState(0)
   const [panelFontScales, setPanelFontScales] = useState<Partial<Record<Exclude<Drawer, ''>, number>>>(loadPanelFontScales)
   const [panelReloads, setPanelReloads] = useState<Partial<Record<Exclude<Drawer, ''>, number>>>({})
@@ -158,149 +84,38 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
   const reloadPanel = (candidate: Exclude<Drawer, ''>) => setPanelReloads((current) => ({ ...current, [candidate]: (current[candidate] || 0) + 1 }))
 
 
-
-  function beginToolDrag(event: React.DragEvent<HTMLButtonElement>, tool: WorkspaceTool) {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData(TOOL_DRAG_TYPE, tool)
-    event.dataTransfer.setData('text/plain', tool)
-  }
-
-  function droppedTool(event: React.DragEvent, before?: WorkspaceTool, pinned = false) {
-    if (!props.onMoveTool) return
-    event.preventDefault()
-    event.stopPropagation()
-    const value = event.dataTransfer.getData(TOOL_DRAG_TYPE) || event.dataTransfer.getData('text/plain')
-    if (isWorkspaceTool(value)) props.onMoveTool(value, side, before, pinned)
-  }
-
-  function beginDrawerResize(event: React.PointerEvent<HTMLButtonElement>) {
-    const body = event.currentTarget.closest('.workspace-body') as HTMLElement | null
-    if (!body) return
-    const rect = body.getBoundingClientRect()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    const update = (clientX: number) => {
-      const minimum = WORKBENCH_SIDE_PANEL_MIN_PX
-      const panel = body.querySelector(`.workspace-side-drawer-${side}`) as HTMLElement | null
-      // Measures every sibling in the live row rather than assuming two rails
-      // and one opposite drawer of a known class - the assumption that let one
-      // splitter overrun a panel the other one owns. See lib/workbenchResize.
-      const ceiling = panel ? drawerResizeCeiling(body, panel, minimum) : minimum
-      const raw = side === 'left' ? clientX - rect.left - WORKSPACE_RAIL_PX : rect.right - clientX - WORKSPACE_RAIL_PX
-      const next = Math.round(Math.max(minimum, Math.min(ceiling, raw)))
-      setLocalDrawerWidth(next); saveWorkspaceDrawerWidth(side, next); props.onDrawerWidth?.(next)
-    }
-    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX)
-    const finish = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish) }
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish)
-  }
-
-  const renderTool = (tool: WorkspaceTool, pinned: boolean) => {
-    const meta = workspaceToolMeta(tool, { terminalOpen: props.terminalOpen, pendingCommitCount, savedChatCount: savedChats.length + archivedChats.length })
-    const active = tool === 'terminal' ? props.terminalOpen : meta.drawer === drawer
-    return <button key={tool} type="button" draggable={Boolean(props.onMoveTool)} data-workspace-tool={tool} data-pinned={pinned ? 'true' : 'false'} className={`${active ? 'active' : ''} ${tool === 'terminal' ? 'workspace-rail-terminal' : ''}`.trim()} onDragStart={(event) => beginToolDrag(event, tool)} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, tool, pinned)} onClick={() => tool === 'terminal' ? props.onToggleTerminal() : meta.drawer && toggle(meta.drawer)} aria-pressed={tool === 'terminal' ? props.terminalOpen : undefined} aria-label={meta.label} title={`${meta.title}${props.onMoveTool ? pinned ? ' · fixado em baixo · arraste para mover' : ' · arraste para reorganizar ou fixe em baixo' : ''}`}><Icon name={meta.icon} size={20}/>{Boolean(meta.badge) && <b>{meta.badge}</b>}</button>
-  }
-
-  const rail = <aside className={`agent-activity-bar workspace-side-rail workspace-side-rail-${side}`} aria-label={side === 'left' ? 'Ferramentas do workspace' : 'Ferramentas laterais direitas'} onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event)}>
-    <div className="workspace-rail-primary">{visibleTools.map((tool) => renderTool(tool, false))}</div>
-    {side === 'right' && <div className="workspace-agent-rail-slot" aria-label="Atalhos do Agent integrados"/>}
-    <div className={`workspace-rail-pinned ${visiblePinnedTools.length ? 'has-tools' : ''}`} aria-label="Ferramentas fixadas no canto inferior" title="Arraste um ícone para aqui para o fixar no canto inferior" onDragOver={(event) => { if (props.onMoveTool) event.preventDefault() }} onDrop={(event) => droppedTool(event, undefined, true)}>
-      {visiblePinnedTools.map((tool) => renderTool(tool, true))}
-      {props.onMoveTool && <span className="workspace-rail-pin-target" aria-hidden="true"/>}
-    </div>
-  </aside>
+  const rail = <WorkspaceNavigation side={side} tools={visibleTools} pinnedTools={visiblePinnedTools} drawer={drawer} terminalOpen={props.terminalOpen} pendingCommitCount={pendingCommitCount} savedChatCount={savedChats.length + archivedChats.length} onToggle={toggle} onToggleTerminal={props.onToggleTerminal} onMoveTool={props.onMoveTool}/>
 
   const drawerPanels = mountedDrawers.map((candidate) => {
     const close = () => closeDrawer(candidate)
     const active = candidate === drawer
+    const projectExplorer = candidate === 'project'
     const owner = drawerOwner(candidate)
     const panelFontScale = panelFontScales[candidate] || 1
     const drawerStyle = {
-      ...(drawerWidth ? { ['--workspace-drawer-width' as string]: `${drawerWidth}px` } : {}),
+      ...(drawerWidth ? { ['--workspace-drawer-width' as string]: `${geometry.width}px` } : {}),
       ['--workspace-panel-font-scale' as string]: String(panelFontScale),
       ['--ui-font-scale' as string]: String(rootUIFontScale() * panelFontScale),
       ...(!active ? { display: 'none' } : {}),
     } as React.CSSProperties
     const panelLabel = workspaceDrawerLabel(candidate)
-    return <aside key={candidate} hidden={!active} className={`agent-drawer workspace-side-drawer workspace-side-drawer-${side}`} style={drawerStyle}>
+    return <aside key={candidate} ref={active ? geometry.root : undefined} hidden={!active} data-panel-side={side} data-panel-tool={candidate} data-panel-preferred-width={drawerWidth} data-panel-overlay={geometry.overlay} data-panel-maximized={active && toolWindow.maximized}
+      className={`relative !z-10 !flex [&[hidden]]:!hidden !min-h-0 !min-w-0 !flex-col !flex-[0_1_var(--workspace-drawer-width)] !w-[var(--workspace-drawer-width)] !overflow-hidden !border-0 !bg-whx-side !text-whx-soft !shadow-none [&>*]:min-h-0 [&>*]:min-w-0 [&_.whx-panel-heading]:!pr-12 data-[panel-maximized=true]:!absolute data-[panel-maximized=true]:!inset-0 data-[panel-maximized=true]:!z-[60] data-[panel-maximized=true]:!w-auto data-[panel-maximized=true]:!max-w-none data-[panel-overlay=true]:!absolute data-[panel-overlay=true]:!inset-y-0 data-[panel-overlay=true]:!z-50 data-[panel-overlay=true]:!max-w-[calc(100cqw-88px)] ${side === 'right' ? 'data-[panel-overlay=true]:!right-11' : 'data-[panel-overlay=true]:!left-11'} agent-drawer workspace-side-drawer workspace-side-drawer-${side} ${workspaceDrawerClass(candidate)}`} style={drawerStyle}>
       <div className="workspace-panel-toolbar" role="toolbar" aria-label={`Ferramentas do painel ${panelLabel}`}>
-        <button type="button" className="workspace-panel-font-control" onClick={() => adjustPanelFontScale(candidate, -PANEL_FONT_SCALE_STEP)} disabled={panelFontScale <= PANEL_FONT_SCALE_MIN} aria-label={`Diminuir texto do painel ${panelLabel}`} title="Diminuir texto">A−</button>
-        <button type="button" className="workspace-panel-font-control" onClick={() => adjustPanelFontScale(candidate, PANEL_FONT_SCALE_STEP)} disabled={panelFontScale >= PANEL_FONT_SCALE_MAX} aria-label={`Aumentar texto do painel ${panelLabel}`} title="Aumentar texto">A+</button>
-        <button type="button" onClick={() => reloadPanel(candidate)} aria-label={`Recarregar painel ${panelLabel}`} title="Recarregar painel"><Icon name="refresh" size={15}/></button>
-        <button type="button" onClick={close} aria-label={`Fechar painel ${panelLabel}`} title="Fechar painel"><Icon name="close" size={15}/></button>
+        <PanelOptions label={panelLabel} maximized={active && toolWindow.maximized} onMaximize={toolWindow.toggle} side={side} pinned={pinnedTools.some((tool) => tool === candidate)} onMove={props.onMoveTool && isWorkspaceTool(candidate) ? (nextSide, pinned) => props.onMoveTool?.(candidate, nextSide, undefined, pinned) : undefined} scale={panelFontScale} onScale={(delta) => adjustPanelFontScale(candidate, delta)} onReload={projectExplorer ? undefined : () => reloadPanel(candidate)}/>
       </div>
       <InternalWindowPersistenceContext.Provider key={`${owner}:${panelReloads[candidate] || 0}`} value={{ owner, register: registerPersistentWindow }}>
         <Suspense fallback={<DrawerFallback/>}>
-        {candidate === 'attention' ? <AttentionCenterDrawer items={attentionItems} historyItems={attentionHistoryItems} activeChatId={props.activeChatId} busy={busy} onOpen={props.onOpenAttention} onAction={props.onAttentionAction} onClose={close}/> : null}
-        {candidate === 'todo' && props.chatProps ? <ProjectTodoPanel session={session} chatProps={props.chatProps} onClose={close} onPromoteToChat={props.onPromoteTodoToChat} onPromoteToCurrentChat={props.onPromoteTodoToCurrentChat} onLocateChat={props.onLocateTodoChat} onGoToOrchestrator={props.onGoToOrchestrator} onError={onError}/> : null}
-        {candidate === 'archive' ? <ChatManagementDrawer projectPath={session.project_path} savedChats={savedChats} archivedChats={archivedChats} busy={busy} onRestoreSaved={props.onRestoreSavedChat} onArchiveSaved={props.onArchiveSavedChat} onRestoreArchived={props.onRestoreChat} onDeleteArchived={props.onDeleteArchivedChat} onRename={props.onRenameChat} onGenerate={props.onGenerateChatTitle} onClose={close}/> : null}
-        {candidate === 'project' ? <AgentProjectExplorer session={session} onOpen={props.onOpenFile} onError={onError} onClose={close} revealPath={props.explorerRevealPath} revealNonce={props.explorerRevealNonce}/> : null}
-        {candidate === 'library' ? <ArtifactExplorerPanel sessionId={session.id} onError={onError} onClose={close}/> : null}
-        {candidate === 'knowledge' ? <ProjectKnowledgeDrawer session={session} busy={busy} onConsolidate={props.onConsolidateKnowledge} onClose={close}/> : null}
-        {candidate === 'git' ? <GitDrawer session={session} busy={busy} onClose={close} onError={onError} onSession={props.onSession} onResolveConflictWithGPT={props.onResolveConflictWithGPT} onOpenGitConflictChat={props.onOpenGitConflictChat}/> : null}
-        {candidate === 'agents' ? <AgentRuntimeDrawer projectPath={session.project_path} chats={props.chats} onGoToChat={props.onGoToChat} onFocusProject={props.onFocusProject} onClose={close} onError={onError}/> : null}
-        {candidate === 'external-agents' ? <CodexPanel projectPath={session.project_path} chatId={props.chatProps?.activeChatId} onSelectChat={props.chatProps?.onSelectChat}/> : null}
-        {candidate === 'tasks' ? <ProjectTasksDrawer projectPath={session.project_path} currentSession={session} chats={props.chats} savedChats={savedChats} archivedChats={archivedChats} activeChatId={props.activeChatId} activeEvents={props.activeEvents} executionFIFO={executionFIFO} onClose={close} onError={onError} onGoToChat={props.onGoToChat}/> : null}
-        {candidate === 'errors' ? <ExecutionErrorsDrawer chats={[...props.chats, ...savedChats, ...archivedChats]} currentSession={session} activeChatId={props.activeChatId} onClose={close}/> : null}
-        {candidate === 'evolution' && session.self_evolution ? <EvolutionEvidenceDrawer session={session} busy={busy} onAnalyze={props.onAnalyzeEvolution || (async () => undefined)} onClose={close}/> : null}
-        {candidate === 'database' ? <div className="workspace-database-drawer"><DatabaseExplorerPanel onError={onError}/><button type="button" className="workspace-right-close" onClick={close} aria-label="Fechar painel lateral direito"><Icon name="close" size={12}/></button></div> : null}
-        {candidate === 'ui-testing' ? <UITestingPanel session={session} onError={onError}/> : null}
-        {candidate === 'docker' ? <DockerServicesPanel session={session} onError={onError} onClose={close} onRunInTerminal={props.onRunInTerminal}/> : null}
+        <WorkspaceDrawerContent candidate={candidate} close={close} props={props}/>
         </Suspense>
       </InternalWindowPersistenceContext.Provider>
     </aside>
   })
-  const splitter = drawer ? <button type="button" className={`agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`} aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste para redimensionar" onPointerDown={beginDrawerResize}/> : null
+  const splitter = drawer ? <button type="button" role="separator" aria-orientation="vertical" aria-valuenow={geometry.width} aria-valuemin={resize.minimum} aria-valuemax={resize.maximum} data-panel-overlay={geometry.overlay}
+    className={`[[data-tool-maximized]_&]:!hidden relative z-20 col-start-3 row-start-3 !w-1.5 !shrink-0 !basis-1.5 !touch-none !cursor-col-resize !rounded-none !border-0 !bg-transparent !p-0 transition-colors hover:!bg-whx-accent/30 focus-visible:!bg-whx-accent/30 focus-visible:!outline-none motion-reduce:transition-none data-[panel-overlay=true]:!hidden agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`}
+    aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste ou use as setas para redimensionar" onPointerDown={resize.begin} onKeyDown={resize.keyboard}/> : null
 
-  return <>{side === 'left' ? <>{rail}{drawerPanels}{splitter}</> : <>{splitter}{drawerPanels}{rail}</>}</>
-}
-
-function panelFontScaleKey() { return `${PANEL_FONT_SCALE_KEY}:${desktopWindowScope()}` }
-function loadPanelFontScales(): Partial<Record<Exclude<Drawer, ''>, number>> {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(panelFontScaleKey()) || '{}') as Record<string, unknown>
-    const scales: Partial<Record<Exclude<Drawer, ''>, number>> = {}
-    for (const candidate of WORKSPACE_DRAWERS) {
-      const value = Number(parsed[candidate])
-      if (Number.isFinite(value)) scales[candidate] = Math.min(PANEL_FONT_SCALE_MAX, Math.max(PANEL_FONT_SCALE_MIN, value))
-    }
-    return scales
-  } catch { return {} }
-}
-function savePanelFontScales(scales: Partial<Record<Exclude<Drawer, ''>, number>>) {
-  try { localStorage.setItem(panelFontScaleKey(), JSON.stringify(scales)) } catch { /* best effort */ }
-}
-function rootUIFontScale() {
-  if (typeof document === 'undefined') return 1
-  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-font-scale'))
-  return Number.isFinite(value) && value > 0 ? value : 1
-}
-function AttentionCenterDrawer({ items, historyItems, activeChatId, busy, onOpen, onAction, onClose }: { items: AttentionItem[]; historyItems: AttentionItem[]; activeChatId: string; busy: boolean; onOpen: (item: AttentionItem) => Promise<void>; onAction: (item: AttentionItem) => Promise<void>; onClose: () => void }) {
-  const [filter, setFilter] = useState<'all' | 'urgent' | 'actionable' | 'history'>('all')
-  const summary = summarizeAttention(items)
-  const showingHistory = filter === 'history'
-  const filteredItems = showingHistory ? historyItems : filter === 'urgent' ? items.filter((item) => item.tone === 'danger') : filter === 'actionable' ? items.filter((item) => Boolean(item.action)) : items
-  return <section className="attention-center-drawer" aria-label="Centro de notificações">
-    <header className="agent-drawer-heading">
-      <div className="attention-center-heading">
-        <span className="attention-center-symbol" aria-hidden="true"><Icon name="bell" size={17}/></span>
-        <div><span className="panel-kicker">Atenção global</span><strong>Centro de Alertas</strong><small>Priorize bloqueios e ações sem sair do projeto.</small></div>
-      </div>
-      <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar Centro de Alertas"><Icon name="close" size={13}/></button>
-    </header>
-    <div className="attention-center-summary" role="status" aria-live="polite" aria-atomic="true">
-      <span><b>{summary.total}</b> {summary.total === 1 ? 'alerta ativo' : 'alertas ativos'}</span>
-      <span className={summary.urgent ? 'danger' : ''}><b>{summary.urgent}</b> {summary.urgent === 1 ? 'urgente' : 'urgentes'}</span>
-      <span><b>{summary.actionable}</b> com ação</span>
-      <span><b>{summary.chats}</b> {summary.chats === 1 ? 'chat afetado' : 'chats afetados'}</span>
-    </div>
-    <nav className="attention-center-filters" aria-label="Filtrar Alertas">
-      <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todos <b>{summary.total}</b></button>
-      <button type="button" aria-pressed={filter === 'urgent'} onClick={() => setFilter('urgent')}>Urgentes <b>{summary.urgent}</b></button>
-      <button type="button" aria-pressed={filter === 'actionable'} onClick={() => setFilter('actionable')}>Com Ação <b>{summary.actionable}</b></button>
-      <button type="button" aria-pressed={filter === 'history'} onClick={() => setFilter('history')}>Histórico <b>{historyItems.length}</b></button>
-    </nav>
-    <div className="attention-center-list">
-      {filteredItems.length ? <AttentionList items={filteredItems} activeChatId={activeChatId} busy={busy} density="full" onOpen={onOpen} onAction={onAction}/> : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>{showingHistory ? 'Histórico vazio' : items.length ? 'Nenhum alerta neste filtro' : 'Nada requer atenção'}</strong><span>{showingHistory ? 'As tarefas concluídas que abrir ficam guardadas aqui.' : items.length ? 'Escolha outro filtro para rever os alertas ativos.' : 'Alertas de todos os chats abertos deste projeto aparecerão aqui.'}</span></div>}
-    </div>
-  </section>
+  const backdrop = drawer ? <button type="button" aria-label="Recolher painel sobreposto" onClick={() => onDrawer('')} data-panel-overlay={geometry.overlay}
+    className="workspace-drawer-backdrop !absolute !inset-0 !z-40 !hidden !border-0 !bg-[color-mix(in_srgb,var(--theme-bg)_65%,transparent)] !p-0 data-[panel-overlay=true]:!block"/> : null
+  return <>{backdrop}{side === 'left' ? <>{rail}{drawerPanels}{splitter}</> : <>{splitter}{drawerPanels}{rail}</>}</>
 }

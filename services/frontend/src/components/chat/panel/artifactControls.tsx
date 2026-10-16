@@ -2,12 +2,11 @@ import { Icon } from '../../presentation/chrome/Icon'
 import type { ChatArtifactKind, ChatItem } from '../../../types'
 import { iterationPhaseLabel } from './noticePresentation'
 import { artifactIcon, artifactLabel } from './presentation/artifactPresentation'
+import { Button } from '../../presentation/workbench'
 
 export function ArtifactToggle({ kind, label, selected, required = false, disabled = false, inspectable = false, onToggle, onInspect }: { kind: ChatArtifactKind; label: string; selected: boolean; required?: boolean; disabled?: boolean; inspectable?: boolean; onToggle?: (kind: ChatArtifactKind) => void; onInspect?: (kind: ChatArtifactKind) => void }) {
   const title = `${required ? `${label} · selecionado automaticamente` : `${label} · ${selected ? 'será anexado' : 'não será anexado'}`}${inspectable ? ' · clique duplo para visualizar' : ''}`
-  return <button type="button" className={`composer-round-action artifact-${kind} ${selected ? 'selected' : ''} ${required ? 'automatic' : ''}`} disabled={disabled} aria-pressed={selected} aria-label={label} title={title} onDoubleClick={() => { if (inspectable) onInspect?.(kind) }} onClick={() => { if (!required) onToggle?.(kind); else if (inspectable) onInspect?.(kind) }}>
-    {artifactIcon(kind)} {selected && <span className="artifact-dot"/>}
-  </button>
+  return <Button icon={selected ? 'check' : 'file'} aria-label={label} aria-pressed={selected} disabled={disabled} title={title} className="!justify-start" onDoubleClick={() => { if (inspectable) onInspect?.(kind) }} onClick={() => { if (!required) onToggle?.(kind); else if (inspectable) onInspect?.(kind) }}>{label}{required ? ' · automático' : selected ? ' · incluído' : ''}</Button>
 }
 
 export function IterationReference({ item, onInspectArtifact, artifactContent }: { item: ChatItem; onInspectArtifact: (kind: ChatArtifactKind) => void; artifactContent?: Partial<Record<ChatArtifactKind, string>> }) {

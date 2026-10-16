@@ -1,3 +1,4 @@
+import { GitContextIdentity } from './context'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { GitBranch, GitOverview, Session } from '../../../types'
@@ -124,7 +125,7 @@ export function ProjectGitBadge({ session, sessionID, busy, onSession, onSync }:
   const disabled = busy || working || !id || !overview?.available
   return <div ref={rootRef} className="project-git-badge-wrap">
     <button type="button" className={`project-git-badge ${workingCount ? 'has-working' : ''} ${pendingCommitCount ? 'has-pending-commit' : ''} ${outgoingCount ? 'has-outgoing' : ''} ${open ? 'active' : ''}`.trim()} onClick={() => { if (!open) announceHeaderPopover('git'); setOpen((value) => !value) }} aria-expanded={open} aria-label={`Git: ${currentBranchName}, projeto ${overview?.project_version || 'sem versão'}`}>
-      <span className="project-git-branch"><span className="project-git-icon"><Icon name="git" size={13}/>{gitStateLabel && <span className="project-git-state-dots" aria-label={gitStateLabel}>{workingCount ? <i className="working"/> : null}{pendingCommitCount ? <i className="pending"/> : null}{outgoingCount ? <i className="outgoing"/> : null}</span>}</span><strong>{currentBranchName}</strong></span><span className="project-git-version">{overview?.project_version || 'v…'}</span><Icon name="chevron" size={11}/>
+      <GitContextIdentity branch={currentBranchName} version={overview?.project_version} stateLabel={gitStateLabel} working={workingCount} pending={pendingCommitCount} outgoing={outgoingCount}/>
     </button>
     {open && <section className="project-git-menu" aria-label="Operações da branch atual">
       <header className="project-git-menu-header"><div className="project-git-menu-title"><span className="project-git-menu-icon"><Icon name="git" size={14}/></span><div><span>Git do projeto</span><strong>{currentBranchName}</strong></div></div><div className="project-git-menu-meta">{overview?.current_branch && <button type="button" className="project-git-copy-button" aria-label={`Copiar nome da branch ${overview.current_branch}`} onClick={() => void copyBranch(overview.current_branch || '')}><Icon name="copy" size={12}/></button>}<span className="project-git-menu-version">{overview?.project_version || '—'}</span></div></header>

@@ -169,6 +169,11 @@ the existing appearance:
 
 ## 6. Non-goals
 
+The explicit operator request of 2026-10-15 authorizes the progressive visual
+redesign defined in `WORKBENCH_DESIGN.md`. Visual parity is waived for those
+deliberately migrated workbench surfaces. Theme coverage, UI scaling, Tailwind
+adoption and removal of dedicated obsolete selectors remain mandatory.
+
 - This is not a design refresh. Visual output before and after migrating any
   given component MUST be unchanged, per `SoT/UI_UX.md`.
 - This does not authorize removing `theme.css`'s token definitions. Tailwind

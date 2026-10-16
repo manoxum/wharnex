@@ -46,7 +46,6 @@
 }
 .docker-detail-icon { border-radius: var(--radius-control); background: transparent; }
 .docker-log-filters button { border-radius: var(--radius-control); }
-.docker-state-pill,
 .docker-usage-badge { border-radius: var(--radius-control); }
 
 /* Keep interaction quiet: no element grows or glows on hover. */
@@ -59,7 +58,6 @@
 .workspace-root [role='button']:hover { transform: none; }
 
 @media (max-width: 820px) {
-  .workspace-topbar { grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); padding-inline: var(--space-2); }
   .workspace-status { min-width: 0; }
   .workspace-identity span { display: none; }
 }
@@ -69,20 +67,9 @@
    These are structural IDE surfaces: neutral layers and separators carry the
    hierarchy while green is reserved for focus/selection state. */
 .editor-area,
-.agent-project-explorer,
 .terminal-workspace:not(.terminal-workspace-hidden) {
   background: var(--theme-bg);
 }
-.editor-contextbar {
-  height: 30px;
-  flex-basis: 30px;
-  padding: 0 10px 0 12px;
-  border-bottom: 1px solid var(--theme-border-soft);
-  background: var(--theme-surface);
-  color: var(--theme-text-muted);
-}
-.editor-breadcrumbs { gap: 5px; }
-.editor-breadcrumbs i { color: color-mix(in srgb, var(--theme-text-muted) 54%, transparent); }
 .monaco-editor-host {
   border: 0;
   background: #151715;
@@ -96,4 +83,3 @@
   background: var(--theme-surface);
   color: var(--theme-text-muted);
 }
-.editor-autosave-status.saved { max-width: 76px; color: var(--theme-text-muted); opacity: .36; }

@@ -3,8 +3,6 @@
 .agent-runtime-scope { margin:0; padding:8px 12px; border-bottom:1px solid var(--theme-border-soft); background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(8.8px * var(--ui-font-scale)); line-height:1.5; }
 .agent-runtime-list > button.foreign-project { box-shadow:inset 2px 0 0 color-mix(in srgb, var(--warning) 64%, var(--theme-border)); }
 .agent-runtime-foreign { overflow:hidden; color:color-mix(in srgb, var(--warning) 78%, var(--theme-text-muted)); font:650 calc(8.2px * var(--ui-font-scale))/1.35 var(--font-family); font-style:normal; text-overflow:ellipsis; white-space:nowrap; }
-.agent-runtime-foreign-note { margin:0 0 9px; padding:8px 10px; border:1px solid color-mix(in srgb, var(--warning) 38%, var(--theme-border-soft)); border-radius:9px; background:color-mix(in srgb, var(--warning) 9%, var(--theme-surface)); color:var(--theme-text-muted); font-size:calc(9px * var(--ui-font-scale)); line-height:1.5; }
-.agent-runtime-foreign-note b { color:var(--theme-text); font-family:var(--mono-font-family); }
 .agent-runtime-list code { max-width:98px; overflow:hidden; padding:3px 6px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(7.8px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-agent-stats { min-width:0; display:grid; justify-items:end; gap:4px; }
 .agent-runtime-agent-stats code { max-width:112px; }
@@ -42,18 +40,6 @@
 .agent-runtime-detail-heading > div { min-width:0; display:flex; align-items:center; gap:8px; }
 .agent-runtime-detail-heading strong { overflow:hidden; font-size:calc(12px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
 .agent-runtime-status-pill { max-width:46%; overflow:hidden; padding:4px 9px; border:1px solid var(--theme-border-soft); border-radius:999px; background:var(--theme-bg); color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); text-overflow:ellipsis; white-space:nowrap; }
-.agent-runtime-detail dl { margin:0; display:grid; gap:4px; }
-.agent-runtime-detail dl > div { min-width:0; padding:7px 9px; display:grid; grid-template-columns:88px minmax(0,1fr); gap:9px; border:1px solid transparent; border-radius:7px; background:color-mix(in srgb, var(--theme-elevated) 62%, transparent); }
-.agent-runtime-detail dl > div:hover { border-color:var(--theme-border-soft); }
-.agent-runtime-detail dt { color:var(--theme-text-muted); font-size:calc(8.3px * var(--ui-font-scale)); }
-.agent-runtime-detail dd { margin:0; overflow:hidden; color:var(--theme-text-soft); font:500 calc(8.8px * var(--ui-font-scale))/1.45 var(--mono-font-family); text-overflow:ellipsis; white-space:nowrap; }
-/* A value the operator can act on: the name stays the value and the affordance
-   sits beside it, so the row reads as a fact rather than as a control. */
-.agent-runtime-detail dd.agent-runtime-link-value { display:flex; align-items:center; gap:6px; }
-.agent-runtime-detail dd.agent-runtime-link-value > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.agent-runtime-inline-link { flex:none; width:19px; height:19px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--theme-border-soft); border-radius:6px; background:var(--theme-bg); color:var(--theme-text-muted); cursor:pointer; }
-.agent-runtime-inline-link:hover:not(:disabled) { border-color:color-mix(in srgb, var(--theme-accent) 48%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
-.agent-runtime-inline-link:disabled { opacity:.4; cursor:default; }
 .agent-runtime-worker-actions { margin-top:11px; display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
 .agent-runtime-icon-button { width:34px; height:34px; min-width:34px; min-height:34px; padding:0; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--theme-border); border-radius:9px; background:var(--theme-elevated); color:var(--theme-text-muted); box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 5%,transparent); cursor:pointer; transition:border-color .14s ease,background .14s ease,color .14s ease,transform .14s ease; }
 .agent-runtime-icon-button:hover:not(:disabled) { border-color:color-mix(in srgb,var(--theme-accent) 52%,var(--theme-border)); background:color-mix(in srgb,var(--theme-accent) 8%,var(--theme-hover)); color:var(--theme-text); transform:translateY(-1px); }

@@ -12,10 +12,11 @@ it('exposes the project knowledge toggle and marks only the active state', async
     const view = render(
       <ChatPanel session={{ ...session, knowledge_sharing_enabled: false }} items={[]} chats={[]} activeChatId="" busy={false} onSend={async () => undefined} onKnowledgeSharing={onKnowledgeSharing} {...chatActions} />,
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Contexto e ferramentas' }))
     let button = screen.getByRole('button', { name: 'Conhecimento do projeto' })
     expect(button.getAttribute('aria-pressed')).toBe('false')
     expect(button.querySelector('svg')).toBeTruthy()
-    expect(button.querySelector('.artifact-dot')).toBeNull()
+    expect(button.textContent).toContain('Conhecimento desligado')
     fireEvent.click(button)
     await waitFor(() => expect(onKnowledgeSharing).toHaveBeenCalledWith(true))
 
@@ -24,7 +25,7 @@ it('exposes the project knowledge toggle and marks only the active state', async
     )
     button = screen.getByRole('button', { name: 'Conhecimento do projeto' })
     expect(button.getAttribute('aria-pressed')).toBe('true')
-    expect(button.querySelector('.artifact-dot')).toBeTruthy()
+    expect(button.textContent).toContain('Conhecimento ligado')
   })
 
 it('renders the new-chat control as an icon-only plus button', () => {

@@ -3,8 +3,12 @@ import appSource from '../workspace/App.tsx?raw'
 import eventSource from './useEventStreamConnection.ts?raw'
 const source = appSource + '\n' + eventSource
 import apiSource from '../../lib/transport/http/api.ts?raw'
-import railSource from '../../components/workspace/shell/WorkspaceSideRail.tsx?raw'
-import taskSource from '../../components/project/tasks/ProjectTasksDrawer.tsx?raw'
+import railHostSource from '../../components/workspace/shell/WorkspaceSideRail.tsx?raw'
+import railContentSource from '../../components/workspace/shell/panels/WorkspaceDrawerContent.tsx?raw'
+const railSource = railHostSource + '\n' + railContentSource
+import taskHostSource from '../../components/project/tasks/ProjectTasksDrawer.tsx?raw'
+import taskQueueSource from '../../components/project/tasks/operations/ExecutionQueue.tsx?raw'
+const taskSource = taskHostSource + '\n' + taskQueueSource
 import recoverySource from '../../components/execution/recovery/InterruptedExecutionRecovery.tsx?raw'
 
 describe('interrupted execution recovery', () => {

@@ -1,0 +1,199 @@
+{
+  "date": "2026-10-16",
+  "scope": "Wharnex Desktop frontend Product Polish; no backend, protocol or remote webapp change",
+  "gates": {
+    "typecheck": {
+      "status": "passed",
+      "log": "/tmp/wharnex-product-polish-typecheck-final.log"
+    },
+    "build": {
+      "status": "passed",
+      "log": "/tmp/wharnex-product-polish-build-final.log",
+      "warnings": [
+        "Existing minified chunks larger than 500 kB"
+      ]
+    },
+    "lint_changed_files": {
+      "status": "passed",
+      "logs": [
+        "/tmp/wharnex-product-polish-targeted-lint-final.log",
+        "/tmp/wharnex-product-polish-topbar-lint.log"
+      ]
+    },
+    "lint_full": {
+      "status": "failed_existing",
+      "log": "/tmp/wharnex-product-polish-lint-verified.log",
+      "errors": [
+        "DrawioPreview.test.tsx: unused _input",
+        "DrawioPreview.test.tsx: unused _init",
+        "drawioModel.ts: no-control-regex"
+      ]
+    },
+    "unit_full": {
+      "status": "failed_existing",
+      "result": "/tmp/wharnex-product-polish-final-suite.json",
+      "passed": 1383,
+      "failed": 63,
+      "files": 360,
+      "failed_files": 42,
+      "baseline": "/tmp/wharnex-editor-popovers-final.json",
+      "new_failures": [],
+      "baseline_failures": [
+        "AgentWorkspace exposes the owning chat recovery action after navigating from a global transport alert",
+        "AgentWorkspace keeps required panel controls in one shared upper-right toolbar",
+        "AgentWorkspace offers saving an active chat without archiving it",
+        "AgentWorkspace opens every drawer at the same width with a resizable left panel",
+        "AgentWorkspace opens project files as editable documents without leaving Agent mode",
+        "AgentWorkspace opens project-wide plan and execution drawers with full details",
+        "AgentWorkspace persists a dragged side-panel width against the shell, not the workspace",
+        "App bundle-submission approval-pending notice keys the pending-approval state off structured session state, never auto_error prose",
+        "App closing all chats renders an empty-state call to action instead of the chat workspace when no chat is open",
+        "App event stream wiring routes every frame through the coalescer instead of updating per frame",
+        "App restart confirmation recovery does not auto-open restart confirmation and routes the notification click into it",
+        "ArtifactViewerModal navigates with keyboard and exposes non-destructive image controls",
+        "ChatPanel exposes the attachment selection panel once a path is attached",
+        "ChatPanel opens the configuration popover when a chip in the text itself is clicked",
+        "ChatPanel opens the context selection modal directly from a ref chip settings action",
+        "ChatPanel opens the context selection modal from an attach chip settings action",
+        "ChatPanel previews the next composer bundle without clearing or sending the draft",
+        "ChatPanel selects files and submits them with the message",
+        "EditorWorkspace git diff stability shows the saved Git state in the active tab and editor context",
+        "Git preflight review reviews commit, push, pull and merge before running the mutation",
+        "Git workbench CSS gives Git mutations a modal processing surface with visible progress",
+        "Git workbench CSS keeps Git tabs fully visible and increases the working-copy reading density",
+        "GitDrawer commits every pending record, or only the selected ones",
+        "GitDrawer copies branch names and remote URLs from version control",
+        "GitDrawer explains that a push conflict published nothing",
+        "GitDrawer lists superproject and submodules together and selects targets per operation",
+        "GitDrawer lists tags and publishes a VERSION-based release from a remote branch modal",
+        "GitDrawer shows contributor ranking and weekly Git activity like repository insights",
+        "GitDrawer shows visible processing and a terminal modal for commit and fetch actions",
+        "Inspector plan compatibility opens a persisted plan whose operation collections are null",
+        "Orchestrator typography migration uses readable Tailwind hierarchy across the operational surfaces",
+        "OrchestratorWorkspace notification routing opens Tasks and selects a notification target after refreshing a stale overview",
+        "OrchestratorWorkspace polling keeps multiple Worker monitors open and removes only the obsolete follow",
+        "ProjectGitBadge presents branch identity and upstream state as a compact Git summary",
+        "ProjectGitBadge shows the Git operation modal for fetch, pull and push from the branch popup",
+        "ProjectTodoPanel archives a TODO and moves it into the Arquivados tab",
+        "agent runtime drawer CSS groups health, capacity and instance details into a calm card hierarchy",
+        "chat attachment internal viewer reads persisted timeline attachments into the internal viewer without shell open",
+        "chat switching stays local and immediate keeps every long-running chat action off the active transcript directly",
+        "complete colour themes gives the integrated chat header and every bundle stage a distinct dark treatment",
+        "composer effort level offers every requested effort budget in the chat composer",
+        "composer effort level treats successful host apply as the terminal boundary",
+        "drawer heading actions CSS keeps heading controls horizontal and out of the project tree hit area",
+        "editor Git and Compose gutter CSS keeps clickable Git blocks and Compose runtime state visible in the editor gutter",
+        "editor explorer terminal visual consolidation keeps native code and terminal canvases on the same restrained dark surface",
+        "execution queue CSS keeps the FIFO drawer compact and neutral instead of using accent-tinted cards",
+        "final workbench visual consolidation uses the restrained semantic palette in the native terminal",
+        "interrupted execution recovery keeps interrupted execution recovery explicit without globally blocking the workspace",
+        "keeps the chat fixed on the left and uses the right-side tabs for the inspector",
+        "lists out-of-view chats in a fixed overflow menu and keeps reorder/save/archive actions",
+        "moves the latest TODO snapshot to the composer task panel and makes iteration artifacts clickable",
+        "operational surface visual hierarchy keeps execution errors and evidence in quiet IDE lists",
+        "panel search controls CSS shares one polished search treatment across compact drawers and utility panels",
+        "per-chat reasoning effort offers only the effort choices observed in the ChatGPT composer",
+        "premium optical refinement separates icon optics from hit areas across rails, Explorer and tool windows",
+        "queues Enter and reserves Ctrl+Enter for an immediate comment while a task is active",
+        "restart confirmation layout CSS reuses the Git diff review hierarchy for the activation comparison",
+        "shows streamed command output immediately below the command event",
+        "summarizes multiple attempts and runs while exposing only relevant actions",
+        "uses main-branch document chrome with full accessible paths and separate close/save actions",
+        "workbench rail and theme integrity CSS keeps the tunnel overview compact and gives the empty state its own hierarchy",
+        "workspace readability and Git focus CSS keeps Git file state visible in Explorer and Editor without relying on colour alone",
+        "workspace readability and Git focus CSS routes every legacy micro font at or below 10px through the UI scale"
+      ],
+      "timing": "After spatial, utility and module changes; final topbar CSS migration subsequently covered by focused tests and browser matrix"
+    },
+    "unit_final_topbar": {
+      "status": "passed",
+      "passed": 7,
+      "log": "/tmp/wharnex-product-polish-topbar-final.log"
+    },
+    "unit_final_styles": {
+      "status": "failed_existing",
+      "passed": 20,
+      "failed": 2,
+      "new_failures": [],
+      "result": "/tmp/wharnex-product-polish-theme-final.json"
+    },
+    "unit_library": {
+      "status": "passed",
+      "passed": 1,
+      "result": "/tmp/wharnex-polish-library.json"
+    },
+    "browser": {
+      "status": "passed",
+      "log": "/tmp/wharnex-product-polish-browser-confirmed.log",
+      "prior_attempt": "17 passed; one blank-page timeout waiting for terminal toggle. No assertion was relaxed.",
+      "passed": 18,
+      "failed": 0
+    },
+    "git_diff_check": {
+      "status": "passed"
+    },
+    "backend_security_e2e": {
+      "status": "not_run",
+      "reason": "No backend, security model, executor or protocol changes"
+    }
+  },
+  "visual_review": {
+    "screenshots": "/tmp/wharnex-product-polish-review/",
+    "scenarios": [
+      "editor alone",
+      "Explorer + editor",
+      "Git + editor",
+      "Docker + editor",
+      "Agent composer",
+      "Orchestrator",
+      "embedded browser monitor frame",
+      "Terminal utility frame",
+      "Problems empty",
+      "Problems with error",
+      "Settings loading",
+      "Settings compact original dark palette",
+      "Settings manual resize and maximize/restore",
+      "compact desktop 900x700",
+      "maximized desktop 1920x1080"
+    ],
+    "additional_topbar_measurements": {
+      "widths": [
+        600,
+        700,
+        899,
+        900,
+        901
+      ],
+      "all_children_contained": true,
+      "compact_height": 75,
+      "normal_height": 44
+    },
+    "themes_and_scale": [
+      "light",
+      "dark Darcula",
+      "original Wharnex dark",
+      "125% UI scale"
+    ],
+    "data": "Real shipped frontend components and Monaco workers; isolated fixture API data, mock native browser bridge and explicitly labelled terminal fixture"
+  },
+  "limitations": [
+    "No manual live Host PTY session validation",
+    "No authenticated remote browser pixel validation",
+    "No live agent execution or account authentication validation",
+    "No mutating Git or Docker operations performed",
+    "The full unit and lint gates retain documented pre-existing failures",
+    "A prior full-suite attempt exited with signal 143; the recorded final suite completed and produced its report"
+  ],
+  "refactoring_pass": {
+    "completed": true,
+    "bounds": [
+      "Utility resize extracted from App into dedicated hook",
+      "Tool geometry and resize split into named layout domain",
+      "Docker row and semantic state extracted behind presentation entry point",
+      "Settings loading/error presentation extracted",
+      "Orchestrator activity extracted",
+      "Superseded dedicated CSS removed; shared legacy cascade exceptions documented",
+      "New implementation and test files below 200 lines; named subdomains preserved"
+    ]
+  }
+}

@@ -35,26 +35,6 @@
   top: 8px;
   bottom: 8px;
 }
-.editor-autosave-status.saved { opacity: .46; }
-.editor-tabbar .editor-save {
-  width: var(--control-sm);
-  min-width: var(--control-sm);
-  height: var(--control-sm);
-  min-height: var(--control-sm);
-  margin: 5px 7px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border-color: transparent;
-  border-radius: var(--radius-control);
-  background: transparent;
-}
-.editor-tabbar .editor-save:hover:not(:disabled) {
-  border-color: transparent;
-  background: var(--theme-hover);
-}
-.editor-tabbar .editor-save:disabled { opacity: .32; }
-
 .terminal-workspace:not(.terminal-workspace-hidden) {
   border-left: 0;
   border-right: 0;
@@ -82,9 +62,6 @@
 }
 .chat-panel .composer-round-action {
   border-radius: var(--radius-control);
-}
-.chat-panel .composer-footer {
-  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
 }
 .chat-stream .message-body {
   border-radius: 2px;
@@ -152,11 +129,4 @@
   border-radius: 0;
   background: transparent;
 }
-.agent-runtime-detail dl > div {
-  border-radius: 0;
-  background: transparent;
-  border-bottom: 1px solid var(--theme-border-soft);
-}
-.agent-runtime-detail dl > div:last-child { border-bottom: 0; }
-
 .settings-premium-grid { gap: 0; }

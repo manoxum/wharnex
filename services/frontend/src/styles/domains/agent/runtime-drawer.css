@@ -70,18 +70,6 @@
   .agent-runtime-agent-stats code { max-width:100%; }
   .agent-runtime-detail { padding:10px; border-radius:9px; }
   .agent-runtime-detail-heading { margin-bottom:6px; padding-bottom:8px; }
-  .agent-runtime-detail dl { gap:0; }
-  .agent-runtime-detail dl > div {
-    padding:7px 4px;
-    grid-template-columns:72px minmax(0,1fr);
-    gap:7px;
-    border:0;
-    border-bottom:1px solid var(--theme-border-soft);
-    border-radius:0;
-    background:transparent;
-  }
-  .agent-runtime-detail dl > div:last-child { border-bottom:0; }
-  .agent-runtime-detail dl > div:hover { border-color:var(--theme-border-soft); background:var(--theme-hover); }
   .agent-runtime-worker-actions { justify-content:flex-start; }
 }
 

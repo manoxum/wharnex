@@ -8,7 +8,7 @@ import { sendTaskComment, createTranscriptMutator, createTranscriptAppender, cre
 import { api, APIError, type LiveEventStream, type EventStreamCoalescer } from '../../lib/transport'
 import { exportTraceChatItem, resolveExportTraceMetadata, BundleRoutingError, bundleFailureKind, isNonTerminalBundleRoutingError, expectedResponseBundleName } from '../../lib/artifacts'
 import { isAutomaticAutomationMode, isAutoApproveAutomationMode, knowledgeConsolidationPending, requestChainActive, activePendingRequestId, pendingRequestRecoveryPrompt, sessionHasPendingRequest, sessionOwnsRequest, hasRecordedRequest, pendingDeliveryResumeOutcome } from '../../lib/agent'
-import { Bootstrap, WorkspaceSideRail, type Drawer, WorkspaceTopbar, WorkbenchStatusBar, WorkspaceShell } from '../../components/workspace'
+import { Bootstrap, WorkspaceSideRail, type Drawer, WorkspaceTopbar, WorkbenchStatusBar, WorkspaceShell, useWorkbenchLayout, workbenchPresentation, WorkbenchCommandCenter, OperationalWorkbench } from '../../components/workspace'
 import { AgentWorkspace } from '../../components/agent'
 import { ChatPanel } from '../../components/chat'
 import { TerminalWorkspace } from '../../components/terminal'
@@ -25,7 +25,7 @@ import { clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWork
 import { chatgptConversationURL, desktopBridge, isDesktop, sameChatGPTConversation, confirmDialog, subscribeHeaderPopover, buildDesktopTrayProjectState, dispatchDesktopTrayProjectAction } from '../../lib/desktop'
 import { conflictAutoDispatchable, gitConflictChatTitle } from '../../lib/git'
 import { embeddedProjectInitiallyActive, embeddedProjectPath, persistOperationalEvidence, storedAttachmentFile, withProjectTodoPrePlan, reconcileTunnelConfig } from '../../lib/project'
-import { errorMessage as messageOf, loadWorkspaceRailLayout, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, loadWorkbenchState, saveWorkbenchState, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from '../../lib/workspace'
+import { errorMessage as messageOf, moveWorkspaceTool, saveWorkspaceRailLayout, subscribeWorkspaceRailLayout, type WorkspaceRailSide, type WorkspaceTool, workspaceSurfaceKey, workspaceSurfaceRequest, workspaceSurfaceTarget as createWorkspaceSurfaceTarget, workspaceSurfaceURL, type WorkspaceSplitDirection, type WorkspaceSurfaceTarget } from '../../lib/workspace'
 import { effortAttemptLimit } from '../agent'
 import { useEmbeddedProjectBridge } from './useEmbeddedProjectBridge'
 import { createSurfaceTransferActions } from './surfaces'
@@ -86,19 +86,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   // operator in Orchestrator, so it always opens on the planning queue that
   // sent them there instead of whichever section was last left open.
   const [orchestratorFocusNonce, setOrchestratorFocusNonce] = useState(0)
-  // Drawer geometry remains project-scoped, but the activity-rail ordering is
-  // shared across projects so the IDE chrome stays structurally consistent.
-  const initialWorkbench = useRef(loadWorkbenchState(embeddedProject)).current
-  const [sideDrawer, setSideDrawer] = useState<Drawer>(() => initialWorkbench.left.open ? (initialWorkbench.left.tool as Drawer) : '')
-  const [rightDrawer, setRightDrawer] = useState<Drawer>(() => initialWorkbench.right.open ? (initialWorkbench.right.tool as Drawer) : '')
-  const [leftDrawerWidth, setLeftDrawerWidth] = useState(initialWorkbench.left.size)
-  const [rightDrawerWidth, setRightDrawerWidth] = useState(initialWorkbench.right.size)
-  const [railLayout, setRailLayout] = useState(() => loadWorkspaceRailLayout(embeddedProject))
-  const workbenchProjectRef = useRef(embeddedProject)
-  // The interactive terminal is the bottom tool window, so its visibility and
-  // height participate in the same persisted workbench state.
-  const [terminalOpen, setTerminalOpen] = useState(surfaceRequest?.kind === 'terminal' ? true : initialWorkbench.bottom.open)
-  const [terminalHeight, setTerminalHeight] = useState(initialWorkbench.bottom.size)
+  const workbench = useWorkbenchLayout(session?.project_path || '', embeddedProject, surfaceRequest?.kind === 'terminal', Boolean(surfaceRequest))
+  const { initialWorkbench, sideDrawer, setSideDrawer, rightDrawer, setRightDrawer, leftDrawerWidth, setLeftDrawerWidth, rightDrawerWidth, setRightDrawerWidth, railLayout, setRailLayout, terminalOpen, setTerminalOpen, terminalHeight, setTerminalHeight, setFocusMode } = workbench
   const [terminalRunRequest, setTerminalRunRequest] = useState<TerminalRunRequest>()
   const terminalRunNonceRef = useRef(0)
   const [error, setError] = useState<string>()
@@ -118,6 +107,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const [interruptedExecutions, setInterruptedExecutions] = useState<Array<{ chat: WorkspaceChat; session: Session }>>([])
   const [executionFIFO, setExecutionFIFO] = useState<FrontendExecutionQueueItem[]>([])
   const [editorOpenPath, setEditorOpenPath] = useState<string | undefined>(surfaceRequest?.kind === 'editor' ? surfaceRequest.path : undefined)
+  const [editorOpenLocation, setEditorOpenLocation] = useState<{ line: number; column: number }>()
   const [editorOpenNonce, setEditorOpenNonce] = useState(surfaceRequest?.kind === 'editor' && surfaceRequest.path ? 1 : 0)
   const [explorerReveal, setExplorerReveal] = useState<{ path?: string; nonce: number }>({ nonce: 0 })
   const [splitSurface, setSplitSurface] = useState<{ direction: WorkspaceSplitDirection; target: WorkspaceSurfaceTarget; ratio: number }>()
@@ -159,25 +149,11 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
   const transcriptMutationQueuesRef = useRef(new Map<string, Promise<void>>())
   const runInTerminal = useCallback((input: TerminalRunInput) => {
     terminalRunNonceRef.current += 1
+    setFocusMode(false)
     setTerminalOpen(true)
     setTerminalRunRequest({ ...input, id: terminalRunNonceRef.current, target: 'host', openNew: true })
   }, [])
 
-  const resizeTerminal = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    const startY = event.clientY
-    const startHeight = terminalHeight
-    const maximum = Math.round(window.innerHeight * .78)
-    const move = (pointer: PointerEvent) => setTerminalHeight(Math.max(185, Math.min(maximum, startHeight + startY - pointer.clientY)))
-    const finish = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', finish)
-      document.body.classList.remove('terminal-resizing')
-    }
-    document.body.classList.add('terminal-resizing')
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', finish, { once: true })
-  }, [terminalHeight])
 
   useEffect(() => { setTerminalRunRequest(undefined) }, [session?.id])
 
@@ -196,31 +172,6 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     const projectPath = session?.project_path || ''
     setAttentionHistoryState({ projectPath, items: projectPath ? loadCompletedAttentionHistory(projectPath) : [] })
   }, [session?.project_path])
-
-  useEffect(() => {
-    if (!session || surfaceRequest) return
-    workbenchProjectRef.current = ''
-    const workbench = loadWorkbenchState(session.project_path)
-    setSideDrawer(workbench.left.open ? (workbench.left.tool as Drawer) : '')
-    setRightDrawer(workbench.right.open ? (workbench.right.tool as Drawer) : '')
-    setLeftDrawerWidth(workbench.left.size)
-    setRightDrawerWidth(workbench.right.size)
-    setTerminalOpen(workbench.bottom.open)
-    setTerminalHeight(workbench.bottom.size)
-    setRailLayout(loadWorkspaceRailLayout(session.project_path))
-    window.queueMicrotask(() => { workbenchProjectRef.current = session.project_path })
-  }, [session?.project_path])
-
-  useEffect(() => {
-    if (!session || surfaceRequest || workbenchProjectRef.current !== session.project_path) return
-    saveWorkbenchState(session.project_path, {
-      version: 1,
-      left: { open: Boolean(sideDrawer), collapsed: !sideDrawer, size: leftDrawerWidth, tool: sideDrawer || '' },
-      right: { open: Boolean(rightDrawer), collapsed: !rightDrawer, size: rightDrawerWidth, tool: rightDrawer || 'database' },
-      bottom: { open: terminalOpen, collapsed: !terminalOpen, size: terminalHeight },
-    })
-  }, [session?.project_path, sideDrawer, rightDrawer, leftDrawerWidth, rightDrawerWidth, terminalOpen, terminalHeight])
-
 
   const activeChatRecord = chats.find((chat) => chat.id === activeChatId)
   const activeChatOwnsSession = Boolean(activeChatRecord && session && activeChatRecord.sessionId === session.id)
@@ -2361,7 +2312,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
-  function openFileFromChat(path: string) {
+  function openFileFromChat(path: string, line?: number, column?: number) {
+    setEditorOpenLocation(line ? { line, column: column || 1 } : undefined)
     setEditorOpenPath(path)
     setEditorOpenNonce((value) => value + 1)
     setMode('editor')
@@ -2917,8 +2869,8 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     if (source === 'right' && rightDrawer === tool) { setRightDrawer(''); setSideDrawer(tool) }
   }
 
-  const openLeftDrawer = (next: Drawer) => { setSideDrawer(next) }
-  const openRightDrawer = (next: Drawer) => { setRightDrawer(next) }
+  const openLeftDrawer = (next: Drawer) => { if (next && rightDrawer === next) setRightDrawer(''); setSideDrawer(next) }
+  const openRightDrawer = (next: Drawer) => { if (next && sideDrawer === next) setSideDrawer(''); setRightDrawer(next) }
 
   function locateFileInExplorer(path: string) {
     const projectOnLeft = railLayout.left.includes('project') || railLayout.pinned.left.includes('project')
@@ -3041,11 +2993,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
     onResolveConflictWithGPT: resolveConflictWithGPT,
     onOpenGitConflictChat: openGitConflictChat,
     terminalOpen: terminalOpen,
-    onToggleTerminal: () => setTerminalOpen((open) => !open),
+    onToggleTerminal: workbench.toggleTerminal,
     onRunInTerminal: runInTerminal,
   } satisfies Partial<ComponentProps<typeof WorkspaceSideRail>>
 
-  return <main className="workspace-root">
+  return <main className={workbenchPresentation(workbench.focusMode, workbench.zenMode)}>
+    <WorkbenchCommandCenter zenMode={workbench.zenMode} onZen={() => workbench.setZenMode((value) => !value)} session={session} onMode={setMode} onTool={(drawer) => { workbench.setZenMode(false); workbench.setFocusMode(false); const onRight = railLayout.right.includes(drawer as WorkspaceTool) || railLayout.pinned.right.includes(drawer as WorkspaceTool); if (onRight) openRightDrawer(drawer); else openLeftDrawer(drawer) }} onOpenFile={openFileFromChat} onSettings={() => setProjectSettingsOpen(true)} onTerminal={workbench.toggleTerminal} onFocus={() => workbench.setFocusMode((focus) => !focus)} onRestore={workbench.restoreLayout}/>
     {!embeddedProject && <WorkspaceTopbar config={config} session={session} mode={mode} executionMode={executionMode} automationMode={automationMode} attention={attentionSummary} restartPending={restartPending} restartBlocked={requestChainActive(session)} busy={busy} onMode={setMode} onAttention={() => setAttentionPreviewOpen((open) => !open)} onRestartPending={() => void openRestartConfirmation(activeChatId)} onSettings={() => setProjectSettingsOpen(true)} onClose={closeWorkspace} onSession={setSession} />}
     {attentionPreviewOpen && <AttentionPopover
       items={attentionItems}
@@ -3073,12 +3026,12 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         which panel is open — and the polling drawers are mounted once, not once
         per workspace. */}
     <div className={`workspace-body ${sideDrawer || rightDrawer ? 'drawer-open' : ''}`} style={{ ['--terminal-height' as string]: terminalOpen ? `${terminalHeight}px` : '0px' } as React.CSSProperties}>
-      <div className="workspace-main-row">
+      <div className="workspace-main-row @container/workbench !relative">
       <WorkspaceSideRail
         session={session}
         busy={activeBusy}
         drawer={sideDrawer}
-        onDrawer={openLeftDrawer}
+        onDrawer={(drawer) => { workbench.setFocusMode(false); openLeftDrawer(drawer) }}
         side="left"
         tools={railLayout.left}
         pinnedTools={railLayout.pinned.left}
@@ -3092,7 +3045,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           <div className="workspace-surface-primary">
         <div className="workspace-mode-stack">
         <div className={`workspace-mode-surface ${mode === 'editor' ? 'active' : ''}`} aria-hidden={mode !== 'editor'}>
-        <DeferredEditorWorkspace session={session} active={mode === 'editor'} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} hiddenPaths={hiddenEditorPaths} onLocateFile={locateFileInExplorer} onDetachFile={(path, point) => point ? moveSurfaceByDrag(surfaceTarget('editor', { path }), point) : detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
+        <DeferredEditorWorkspace session={session} active={mode === 'editor'} onError={setError} onRunInTerminal={runInTerminal} openPath={editorOpenPath} openNonce={editorOpenNonce} openLocation={editorOpenLocation} hiddenPaths={hiddenEditorPaths} onLocateFile={locateFileInExplorer} onDetachFile={(path, point) => point ? moveSurfaceByDrag(surfaceTarget('editor', { path }), point) : detachSurface(surfaceTarget('editor', { path }))} onSplitFile={(path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />
       </div>
       <div className={`workspace-mode-surface ${mode === 'orchestrator' ? 'active' : ''}`} aria-hidden={mode !== 'orchestrator'}>
         <OrchestratorWorkspace
@@ -3122,7 +3075,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           attentionItems={attentionItems}
           chatgptAttentionNonce={chatgptAttentionNonce}
           inspectorAttention={inspectorAttention}
-          singlePane={Boolean(sideDrawer && rightDrawer)}
+          singlePane={Boolean(!workbench.focusMode && sideDrawer && rightDrawer)}
           onOpenAttention={openAttentionItem}
           onAttentionAction={runAttentionItemAction}
           onOpenAttentionDrawer={() => openLeftDrawer('attention')}
@@ -3140,8 +3093,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         />}
       </div>
       </div>
-        {terminalOpen && <div className="terminal-resizer" role="separator" aria-orientation="horizontal" aria-label="Ajustar altura do terminal" title="Arraste para aumentar ou reduzir o terminal" onPointerDown={resizeTerminal} onDoubleClick={() => setTerminalHeight(275)} />}
-        <TerminalWorkspace session={session} height={terminalHeight} visible={terminalOpen} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onDetachTerminal={() => detachSurface(surfaceTarget('terminal'))} onSplitTerminal={(direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />
+        <OperationalWorkbench session={session} chats={[...chats, ...savedChats, ...archivedChats]} activeChatId={activeChatId} events={events} visible={terminalOpen} height={terminalHeight} terminalActivation={workbench.terminalActivation} runRequestId={terminalRunRequest?.id} onHeight={setTerminalHeight} onOpen={() => setTerminalOpen(true)} onClose={() => setTerminalOpen(false)} terminal={(active) => <TerminalWorkspace session={session} height={terminalHeight} fill visible={active} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onDetachTerminal={() => detachSurface(surfaceTarget('terminal'))} onSplitTerminal={(direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}/>
           </div>
           {splitSurface && <div className={`workspace-surface-splitter split-${splitSurface.direction}`} role="separator" aria-orientation={splitSurface.direction === 'vertical' ? 'vertical' : 'horizontal'} aria-label="Redimensionar divisão do workspace" onPointerDown={(event) => resizeWorkspaceSplit(event, splitSurface.direction)} />}
         {splitSurface && <section className="workspace-split-pane"><header><strong>{splitSurface.target.kind === 'chat' ? 'Chat' : splitSurface.target.kind === 'editor' ? splitSurface.target.path || 'Editor' : 'Terminal'}</strong><div><button type="button" onClick={() => detachSurface(splitSurface.target)} title="Destacar para janela" aria-label="Destacar painel para janela"><Icon name="external" size={12}/></button><button type="button" onClick={() => setSplitSurface(undefined)} title="Fechar divisão" aria-label="Fechar divisão">×</button></div></header><iframe title={`Painel ${splitSurface.target.kind}`} src={workspaceSurfaceURL(splitSurface.target, 'split')} /></section>}
@@ -3151,7 +3103,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         session={session}
         busy={activeBusy}
         drawer={rightDrawer}
-        onDrawer={openRightDrawer}
+        onDrawer={(drawer) => { workbench.setFocusMode(false); openRightDrawer(drawer) }}
         side="right"
         tools={railLayout.right}
         pinnedTools={railLayout.pinned.right}
@@ -3161,7 +3113,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
         {...sharedRailProps}
       />
       </div>
-      <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} bundleRefreshKey={`${session.id}:${session.artifacts?.length || 0}`} />
+      <WorkbenchStatusBar mode={mode} executionMode={executionMode} automationMode={automationMode} terminalOpen={terminalOpen} activeExecutions={activeExecutionCount} bundleRefreshKey={`${session.id}:${session.artifacts?.length || 0}`} layout={{ leftOpen: Boolean(sideDrawer), rightOpen: Boolean(rightDrawer), terminalOpen, focusMode: workbench.focusMode, onLeft: workbench.toggleLeft, onRight: workbench.toggleRight, onTerminal: workbench.toggleTerminal, onFocus: () => workbench.setFocusMode((focus) => !focus), onRestore: workbench.restoreLayout }} />
     </div>
   </main>
 }

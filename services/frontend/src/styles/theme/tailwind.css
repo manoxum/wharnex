@@ -4,6 +4,16 @@
 
 @theme inline {
   --color-whx-bg: var(--theme-bg);
+  --color-whx-workspace: var(--theme-workspace);
+  --color-whx-side: var(--theme-side);
+  --color-whx-raised: var(--theme-raised);
+  --color-whx-control: var(--theme-control);
+  --color-whx-selection: var(--theme-selection);
+  --color-whx-popover: var(--theme-popover);
+  --color-whx-running: var(--theme-running);
+  --color-whx-info: var(--theme-info);
+  --color-whx-focus: var(--theme-focus);
+  --color-whx-disabled: var(--theme-disabled);
   --color-whx-surface: var(--theme-surface);
   --color-whx-elevated: var(--theme-elevated);
   --color-whx-muted: var(--theme-muted);
@@ -26,4 +36,11 @@
   --text-lg: calc(14px * var(--ui-font-scale));
   --text-xl: calc(17px * var(--ui-font-scale));
   --text-2xl: calc(22px * var(--ui-font-scale));
+  --text-whx-caption: calc(8.5px * var(--ui-font-scale));
+  --text-whx-label: calc(9.75px * var(--ui-font-scale));
+  --text-whx-body: calc(10.5px * var(--ui-font-scale));
+  --text-whx-title: calc(11.5px * var(--ui-font-scale));
+  --text-whx-heading: calc(15px * var(--ui-font-scale));
+  --text-whx-support: calc(11.5px * var(--ui-font-scale));
+  --text-whx-readable: calc(13px * var(--ui-font-scale));
 }

@@ -39,8 +39,8 @@ export function BrowserLinkViewport({ chat, suspended }: { chat: BrowserMonitorC
 
   useEffect(() => () => { void bridge?.closeLinkInMonitor(chat.url).catch(() => undefined) }, [bridge, chat.url])
 
-  return <div className="relative min-h-0 flex-1 overflow-hidden bg-white">
+  return <div className="relative min-h-0 flex-1 overflow-hidden bg-whx-bg">
     {!suspended ? <div ref={host} className="h-full w-full" aria-label={`Chat GPT: ${chat.title}`} /> : null}
-    {error ? <div role="alert" className="absolute inset-0 grid place-items-center bg-slate-950/90 p-6 text-center text-sm text-rose-200">{error}</div> : null}
+    {error ? <div role="alert" className="absolute inset-0 grid place-items-center bg-whx-bg p-6 text-center text-sm text-whx-danger">{error}</div> : null}
   </div>
 }

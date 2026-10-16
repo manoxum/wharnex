@@ -1,3 +1,4 @@
+import composerToolbarSource from '../../../components/chat/composer/toolbar/ComposerToolbar.tsx?raw'
 import { describe, expect, it } from 'vitest'
 import { css, lastRule, firstRule } from '../../cascade/styleRules'
 
@@ -77,27 +78,16 @@ describe('composer layout CSS', () => {
   })
 
   it('anchors send to the far-right composer edge independently of toolbar intrinsic width', () => {
-    const footer = lastRule('.composer-footer')
-    const toolbar = lastRule('.composer-toolbar-row')
-    const send = lastRule('.composer-toolbar-row .send-button')
+    expect(composerToolbarSource).toContain('composer-footer grid min-w-0 shrink-0')
+    expect(composerToolbarSource).toContain('flex min-w-0 items-end gap-3')
+    expect(composerToolbarSource).toContain('composer-action-row flex min-w-0 flex-1 flex-wrap')
+    expect(composerToolbarSource).toContain('className="shrink-0 [&>button]:!static')
+    expect(composerToolbarSource).toContain('[&>button]:!size-9')
+    expect(composerToolbarSource).toContain('[&>button]:!min-w-9')
+    expect(composerToolbarSource).toContain('[&>button]:!m-0')
+    expect(composerToolbarSource).toContain('[&>button]:focus-visible:!outline-whx-accent')
+    expect(composerToolbarSource).toContain('text-whx-caption leading-relaxed')
 
-    expect(footer).toContain('position: relative')
-    expect(footer).toContain('width: 100%')
-    expect(footer).toContain('padding: 6px 40px 9px 9px')
-    expect(footer).toContain('display: grid')
-    expect(footer).toContain('grid-template-columns: minmax(0, 1fr)')
-    expect(footer).toContain('justify-content: stretch')
-    expect(footer).toContain('justify-items: stretch')
-    expect(footer).toContain('border-radius: 0 0 14px 14px')
-    expect(toolbar).toContain('width: 100%')
-    expect(toolbar).toContain('min-width: 0')
-    expect(toolbar).toContain('min-height: 31px')
-    expect(toolbar).toContain('display: block')
-    expect(send).toContain('position: absolute')
-    expect(send).toContain('top: 6px')
-    expect(send).toContain('right: 8px')
-    expect(send).toContain('margin: 0')
-    expect(lastRule('.composer-hint')).toContain('padding-right: 6px')
   })
 
 

@@ -151,4 +151,27 @@ describe('WorkspaceTopbar self-evolution', () => {
     }
   })
 
+  it('moves workspace modes below the identity and status groups in compact desktop windows', () => {
+    const { container } = render(<WorkspaceTopbar
+      session={session()}
+      mode="agent"
+      executionMode="protected"
+      automationMode="auto"
+      busy={false}
+      onMode={vi.fn()}
+      onSettings={vi.fn()}
+      onClose={vi.fn()}
+    />)
+    const header = container.querySelector('.workspace-topbar')!
+    const switches = container.querySelector('.workspace-switches')!
+    const status = container.querySelector('.workspace-status')!
+
+    expect(header.className).toContain('max-[900px]:!grid-cols-[minmax(0,1fr)_auto]')
+    expect(header.className).toContain('max-[900px]:!h-auto')
+    expect(switches.className).toContain('max-[900px]:!row-start-2')
+    expect(status.className).toContain('max-[900px]:!row-start-1')
+    expect(status.className).toContain('max-[900px]:!min-w-0')
+    expect(status.className).toContain('max-[640px]:!flex-wrap')
+  })
+
 })

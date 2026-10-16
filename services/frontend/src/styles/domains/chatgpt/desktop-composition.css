@@ -131,19 +131,8 @@
 
 /* Monaco-powered editing surface */
 .editor-area { background: #151713; }
-.editor-tabbar .editor-save { flex: 0 0 auto; margin: 5px 7px; border-color: #3b4037; background: #292d27; color: #c1c8b9; }
-.editor-tabbar .editor-save:hover:not(:disabled) { background: #343a31; }
-.editor-contextbar { height: 31px; flex: 0 0 31px; min-width: 0; padding: 0 10px 0 13px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid #282c26; background: #181a17; color: #778071; }
-.editor-breadcrumbs { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; font: 9px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
-.editor-breadcrumbs span { display: inline-flex; align-items: center; gap: 5px; }
-.editor-breadcrumbs i { color: #4f574b; font-style: normal; }
-.editor-shortcuts { flex: 0 0 auto; display: flex; gap: 10px; color: #596157; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
 .monaco-editor-host { flex: 1; min-width: 0; min-height: 0; background: #151713; }
 .editor-statusbar { height: 24px; flex: 0 0 24px; border-color: #30342d; background: #1e211c; color: #70786b; }
 .editor-statusbar > div { display: flex; align-items: center; gap: 12px; }
 .editor-statusbar > div span + span { position: relative; }
 .editor-statusbar > div span + span::before { content: '·'; position: absolute; left: -8px; color: #454b41; }
-.editor-empty { background: #151713; color: #687063; }
-.editor-empty .empty-mark { color: #30352d; }
-.editor-empty h3 { color: #a3ab9c; }
-.editor-empty p { color: #687063; }

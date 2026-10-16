@@ -41,30 +41,7 @@
 
 /* Git review: surface transport errors clearly and reuse the structured diff inspector. */
 .git-notice.error-card { border-bottom-color: color-mix(in srgb, var(--theme-danger, #d66b62) 55%, var(--theme-border)); background: color-mix(in srgb, var(--theme-danger, #d66b62) 14%, var(--theme-surface)); color: color-mix(in srgb, var(--theme-danger, #d66b62) 72%, var(--theme-text)); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono-font-family, monospace); }
-.git-diff-review { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(190px, 28%) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--theme-border-soft); border-radius: 8px; background: var(--theme-bg); }
-.git-diff-review.files-collapsed { grid-template-columns: 38px minmax(0, 1fr); }
-.git-diff-review-files { min-width: 0; min-height: 0; padding: 5px; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 4px; overflow: hidden; border-right: 1px solid var(--theme-border-soft); background: var(--theme-surface); }
-.git-diff-review-files-toolbar { min-width: 0; min-height: 26px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.git-diff-review-files-toolbar > strong { min-width: 0; overflow: hidden; color: var(--theme-text-muted); font-size: calc(6.8px * var(--ui-font-scale)); letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-.git-diff-review-files-toolbar > button { width: 26px; height: 26px; flex: 0 0 26px; display: grid; place-items: center; border: 1px solid var(--theme-border-soft); border-radius: 7px; background: var(--theme-bg); color: var(--theme-text-muted); cursor: pointer; }
-.git-diff-review-files-toolbar > button:hover { background: var(--theme-hover); color: var(--theme-text); }
-.git-diff-review-files-toolbar > button:not(.collapsed) svg { transform: rotate(180deg); }
-.git-diff-review.files-collapsed .git-diff-review-files { padding: 5px; }
-.git-diff-review-file-list { min-width: 0; min-height: 0; padding-right: 2px; display: grid; align-content: start; gap: 2px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
-.git-diff-review-file-list > button { width: 100%; min-width: 0; padding: 7px 7px; display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--theme-text-muted); text-align: left; cursor: pointer; }
-.git-diff-review-file-list > button:hover { background: var(--theme-hover); color: var(--theme-text); }
-.git-diff-review-file-list > button.active { border-color: var(--theme-border); background: var(--theme-accent-soft); color: var(--theme-text); }
-.git-diff-review-file-list > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(7.8px * var(--ui-font-scale))/1.2 var(--mono-font-family, monospace); }
-.git-diff-review-file-list small, .git-diff-review-file-heading > span { display: inline-flex; gap: 5px; font: 700 calc(7px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); }
-.git-diff-review-file-list b, .git-diff-review-file-heading b { color: #78b884; }
-.git-diff-review-file-list i, .git-diff-review-file-heading i { color: #cf7d75; font-style: normal; }
-.git-diff-review-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: 30px minmax(0,1fr); background: #121411; }
-.git-diff-review-file-heading { min-width: 0; padding: 0 9px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid #30352e; background: #1b1e19; }
-.git-diff-review-file-heading strong { overflow: hidden; color: #d9ded5; font: 650 calc(7.8px * var(--ui-font-scale))/1 var(--mono-font-family, monospace); text-overflow: ellipsis; white-space: nowrap; }
-.git-diff-review-main .change-diff-shell { min-height: 0; }
-.git-diff-empty { min-height: 180px; margin: 0; display: grid; place-items: center; color: var(--theme-text-muted); border: 1px dashed var(--theme-border-soft); border-radius: 8px; }
 .git-commit-detail-modal { grid-template-rows: auto auto auto minmax(0,1fr) auto; }
-@media (max-width: 720px) { .git-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(90px, 28%) minmax(0,1fr); } .git-diff-review.files-collapsed { grid-template-columns: 1fr; grid-template-rows: 38px minmax(0,1fr); } .git-diff-review-files { border-right: 0; border-bottom: 1px solid var(--theme-border-soft); } }
 
 /* Project TODO inbox: capture first, enrich asynchronously, promote when ready. */
 .project-todo-panel { position:relative; height:100%; min-height:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; background:linear-gradient(180deg, color-mix(in srgb, var(--theme-surface) 62%, var(--theme-bg)) 0, var(--theme-bg) 150px); }
@@ -73,8 +50,6 @@
 .project-todo-heading .panel-kicker { grid-column:1 / -1; }
 .project-todo-heading strong { font-size:13px; letter-spacing:.01em; }
 .project-todo-heading small { color:var(--theme-text-muted); font-size:9.5px; font-weight:520; }
-.project-todo-list { min-height:0; overflow:auto; padding:12px 10px 86px; display:grid; align-content:start; gap:10px; scrollbar-gutter:stable; }
-.project-todo-panel.composer-open .project-todo-list { padding-bottom:14px; }
 .project-todo-card { display:grid; gap:10px; padding:12px; border:1px solid var(--theme-border); border-radius:13px; background:var(--theme-elevated); box-shadow:0 3px 14px color-mix(in srgb, var(--theme-shadow) 36%, transparent); transition:border-color .16s ease,transform .16s ease,box-shadow .16s ease; }
 .project-todo-card:hover { border-color:color-mix(in srgb, var(--theme-accent) 34%, var(--theme-border)); box-shadow:0 7px 22px color-mix(in srgb, var(--theme-shadow) 50%, transparent); }
 .project-todo-card.done { opacity:.68; box-shadow:none; }
@@ -108,7 +83,6 @@
 .project-todo-actions button { min-height:28px; padding:0 8px; display:inline-flex; gap:5px; align-items:center; border:1px solid var(--theme-border); border-radius:8px; background:var(--theme-surface); color:var(--theme-text-soft); font:inherit; font-size:9.5px; font-weight:620; cursor:pointer; }
 .project-todo-actions button:hover:not(:disabled) { border-color:color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border)); background:var(--theme-hover); color:var(--theme-text); }
 .project-todo-actions button.primary { border-color:color-mix(in srgb, var(--theme-accent) 36%, var(--theme-border)); background:var(--theme-accent-soft); color:var(--theme-text); }
-.project-todo-empty { margin:auto 18px; min-height:180px; justify-content:center; }
 .project-todo-fab { justify-self:end; margin:0 14px 14px; min-height:40px; padding:0 14px 0 11px; display:inline-flex; align-items:center; gap:7px; border:1px solid color-mix(in srgb, var(--theme-accent) 70%, var(--theme-border)); border-radius:999px; background:var(--theme-accent); color:var(--theme-surface); box-shadow:0 10px 26px color-mix(in srgb, var(--theme-shadow) 86%, transparent); font:inherit; font-size:10px; font-weight:760; cursor:pointer; transition:transform .16s ease,box-shadow .16s ease; }
 .project-todo-fab:hover { transform:translateY(-1px); box-shadow:0 13px 30px color-mix(in srgb, var(--theme-shadow) 100%, transparent); }
 .project-todo-composer { display:grid; border-top:1px solid var(--theme-border); background:var(--theme-elevated); box-shadow:0 -12px 30px color-mix(in srgb, var(--theme-shadow) 44%, transparent); }
@@ -120,8 +94,6 @@
 .project-todo-composer > header button:hover { background:var(--theme-hover); color:var(--theme-text); }
 .project-todo-composer .chat-panel.composer-only { width:100%; min-height:0; overflow:visible; border:0; background:transparent; }
 .project-todo-composer .chat-panel.composer-only .composer { width:auto; margin:10px; box-shadow:none; background:var(--theme-surface); border-color:var(--theme-border); }
-.chat-panel.compact-composer .composer-footer { padding-top:5px; }
-.chat-panel.compact-composer .composer-action-row { min-height:28px; }
 .chat-panel.compact-composer .composer-hint { max-width:100%; }
 
 /* Execution-plan adjustment composer */

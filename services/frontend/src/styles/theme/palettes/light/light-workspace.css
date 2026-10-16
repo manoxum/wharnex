@@ -86,11 +86,6 @@
 :root[data-theme='light'] .panel-search-field:focus-within { border-color: color-mix(in srgb, var(--theme-accent) 58%, var(--theme-border)); background: #fff; }
 :root[data-theme='light'] .panel-search-field input { border-color: transparent; background: transparent; color: var(--theme-text); }
 :root[data-theme='light'] .panel-search-field input::placeholder { color: #929a8f; }
-:root[data-theme='light'] .agent-tree-row { color: #697466; }
-:root[data-theme='light'] .agent-tree-row.folder { color: #4f5a4b; }
-:root[data-theme='light'] .agent-tree-row:hover { background: #e5eae1; color: #252c22; }
-:root[data-theme='light'] .agent-project-footer { border-color: var(--theme-border); background: #e9ede5; color: #788274; }
-
 /* Light editor, explorer and terminal. */
 :root[data-theme='light'] .editor-workspace,
 :root[data-theme='light'] .editor-main,
@@ -123,19 +118,8 @@
 :root[data-theme='light'] .explorer-context-menu button { color: #4d574a; }
 :root[data-theme='light'] .explorer-context-menu button:hover { background: #e8ece4; color: #22291f; }
 :root[data-theme='light'] .menu-separator { background: var(--theme-border); }
-:root[data-theme='light'] .editor-tabbar .editor-save { border-color: #c7cec1; background: #f8f9f5; color: #4e584a; }
-:root[data-theme='light'] .editor-tabbar .editor-save:hover:not(:disabled) { background: #e2e7de; }
-:root[data-theme='light'] .editor-contextbar { border-color: var(--theme-border-soft); background: #f0f2ed; color: #697466; }
-:root[data-theme='light'] .editor-breadcrumbs i,
-:root[data-theme='light'] .editor-shortcuts { color: #899286; }
-:root[data-theme='light'] .editor-shortcuts button { border-color: #ced4c9; background: #f8f9f5; color: #677263; }
-:root[data-theme='light'] .editor-shortcuts button:hover { background: #e3e8df; color: #30382d; }
 :root[data-theme='light'] .editor-statusbar { border-color: var(--theme-border); background: #e9ede5; color: #687265; }
 :root[data-theme='light'] .editor-statusbar > div span + span::before { color: #adb4a9; }
-:root[data-theme='light'] .editor-empty { background: #f7f8f4; color: #758073; }
-:root[data-theme='light'] .editor-empty .empty-mark { color: #d8ddd4; }
-:root[data-theme='light'] .editor-empty h3 { color: #495246; }
-:root[data-theme='light'] .editor-empty p { color: #727c6f; }
 :root[data-theme='light'] .terminal-resizer { background: #c5ccc0; }
 :root[data-theme='light'] .ide-terminal { border-color: #c8cec3; background: #f4f6f1; color: #31382e; }
 :root[data-theme='light'] .ide-terminal > header { border-color: #d5dad0; background: #e8ece4; }

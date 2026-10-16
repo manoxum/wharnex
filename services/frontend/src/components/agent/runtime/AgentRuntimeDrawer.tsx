@@ -1,3 +1,4 @@
+import { AgentRuntimeDetails, AgentRuntimeHeader, durationLabel, memoryLabel, short, stateLegend, timeLabel, type OperationalState } from './presentation'
 import { AgentRuntimeTabs } from './AgentRuntimeTabs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { desktopBridge, elementBounds } from '../../../lib/desktop/bridge/desktop'
@@ -12,27 +13,7 @@ type Runtime = DesktopAgentRuntimeState
 
 type Snapshot = { agentId: string; dataUrl: string; capturedAt: string }
 
-type OperationalState = 'idle' | 'writing' | 'listening' | 'waiting' | 'chat-empty' | 'working' | 'loading' | 'error' | 'stopped' | 'draining' | 'paused'
-
 const writingTaskTypes = new Set(['BOT_WRITE', 'RECOVERY_WRITE', 'ORCHESTRATOR_PLAN'])
-
-
-// One entry per colour the list can show. A running task can be in several
-// of them (preparing, sending, waiting for ChatGPT), so each entry names the
-// phases it covers rather than the durable task status.
-const stateLegend: { key: OperationalState; label: string; hint: string }[] = [
-  { key: 'idle', label: 'Ocioso', hint: 'Sem tarefa' },
-  { key: 'waiting', label: 'Na fila / a aguardar', hint: 'Na fila de envio do ritmo global, tarefa em espera, ou Worker preso à sua tarefa entre rondas' },
-  { key: 'loading', label: 'A abrir conversa', hint: 'A navegar ou a carregar a página do ChatGPT' },
-  { key: 'working', label: 'A preparar / validar', hint: 'A iniciar, a preparar o pedido, a descarregar ou a validar a resposta' },
-  { key: 'writing', label: 'A enviar ao GPT', hint: 'A carregar o ZIP, a submeter ou a escrever no chat' },
-  { key: 'listening', label: 'GPT a processar', hint: 'Pedido submetido; o ChatGPT está a gerar a resposta' },
-  { key: 'chat-empty', label: 'Chat sem jobs', hint: 'Supervisor com chat mas sem trabalho' },
-  { key: 'paused', label: 'Suspenso', hint: 'Workers suspensos pela política' },
-  { key: 'error', label: 'Com erro', hint: 'A última tentativa falhou' },
-  { key: 'stopped', label: 'Parado', hint: 'Loop do agente parado' },
-  { key: 'draining', label: 'A terminar', hint: 'A sair do pool após reduzir o número de agentes' },
-]
 
 // What a Worker is actually doing inside its task, reported by the Desktop.
 // Inferring it from the task type showed a Worker still waiting its turn at
@@ -68,14 +49,14 @@ function agentOperationalState(agent: DesktopAgentRuntimeAgent): { key: Operatio
   return { key: 'idle', label: 'Ocioso' }
 }
 
-function statusLabel(agent: DesktopAgentRuntimeAgent) {
-  const label = agentOperationalState(agent).label
-  return agent.interacting ? `Interação · ${label}` : label
+function agentDisplayState(agent: DesktopAgentRuntimeAgent, isForeign = false) {
+  // Shared pool status may name the owning project, not the task's activity.
+  return isForeign ? { key: 'working' as const, label: 'Ocupado noutro projeto' } : agentOperationalState(agent)
 }
 
-function short(value?: string, fallback = '—') {
-  const text = String(value || '').trim()
-  return text || fallback
+function statusLabel(agent: DesktopAgentRuntimeAgent, isForeign = false) {
+  const label = agentDisplayState(agent, isForeign).label
+  return agent.interacting ? `Interação · ${label}` : label
 }
 
 function runtimeErrorMessage(error: unknown, fallback: string) {
@@ -120,31 +101,6 @@ function engagedTask(agent: DesktopAgentRuntimeAgent) {
 function projectLabel(projectPath: string) {
   const segments = projectPath.split('/').filter(Boolean)
   return segments[segments.length - 1] || projectPath
-}
-
-function timeLabel(value?: string) {
-  const text = String(value || '').trim()
-  if (!text) return '—'
-  const date = new Date(text)
-  return Number.isNaN(date.getTime()) ? text : date.toLocaleString()
-}
-
-function durationLabel(value?: number) {
-  const ms = Math.max(0, Number(value || 0))
-  if (!ms) return '—'
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 60) return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  const rest = seconds % 60
-  return rest ? `${minutes}m ${rest}s` : `${minutes}m`
-}
-
-function memoryLabel(value?: number, available = true) {
-  if (!available) return '—'
-  const bytes = Math.max(0, Number(value || 0))
-  const mib = bytes / (1024 * 1024)
-  if (mib >= 1024) return `${(mib / 1024).toFixed(2)} GiB`
-  return `${mib >= 100 ? Math.round(mib) : mib.toFixed(1)} MiB`
 }
 
 function interactionBounds(host: HTMLElement) {
@@ -246,7 +202,6 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     window.addEventListener('scroll', sync, true)
     return () => {
       active = false
-      cancelAnimationFrame(frame)
       observer?.disconnect()
       window.removeEventListener('resize', sync)
       window.removeEventListener('scroll', sync, true)
@@ -325,13 +280,13 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
     setActiveTab(tab)
   }
 
-  if (!bridge) return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime local</span><strong>Agentes</strong></div><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></header>
+  if (!bridge) return <section className="agent-runtime-drawer !grid-rows-[auto_auto_auto_minmax(0,1fr)]" aria-label="Gestão de agentes">
+    <AgentRuntimeHeader onClose={onClose}/>
     <div className="agent-drawer-empty"><strong>Bridge preload indisponível.</strong><span>Abra esta área no Wharnex Desktop/Electron. Sem a bridge não é possível distinguir o scheduler, o backend ou os browsers dos Workers.</span></div>
   </section>
 
-  return <section className="agent-runtime-drawer" aria-label="Gestão de agentes">
-    <header className="agent-drawer-heading"><div><span className="panel-kicker">Runtime ChatGPT</span><strong>Agentes</strong></div><div className="agent-runtime-heading-actions"><button type="button" className="agent-drawer-icon" onClick={() => void refresh()} aria-label="Atualizar agentes"><Icon name="refresh" size={13}/></button><button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar agentes"><Icon name="close" size={13}/></button></div></header>
+  return <section className="agent-runtime-drawer !grid-rows-[auto_auto_auto_minmax(0,1fr)]" aria-label="Gestão de agentes">
+    <AgentRuntimeHeader onClose={onClose} onRefresh={() => void refresh()}/>
     {!runtime ? <ContentSkeleton label="A carregar instâncias do runtime" rows={6}/> : <>
       <div className="agent-runtime-summary"><span><b>{runtime.agents.length}</b><small>instâncias</small></span><span><b>{running}</b><small>ocupadas</small></span><span><b>{elsewhere}</b><small>noutro projeto</small></span><span><b>{runtime.desired_workers}</b><small>{runtime.policies?.auto_scaled_workers ? `${runtime.configured_workers} base · +${runtime.policies.auto_scaled_workers} auto` : 'workers'}</small></span></div>
       <AgentRuntimeTabs value={activeTab} onChange={selectRuntimeTab} agents={runtime.agents.length} running={Boolean(runtime.scheduler?.running)} autoScale={runtime.policies.auto_scale}/>
@@ -372,29 +327,12 @@ export function AgentRuntimeDrawer({ projectPath, chats = [], onGoToChat, onFocu
         {stateLegend.map(({ key, label, hint }) => <span key={key} title={hint}><i className={`agent-runtime-dot state-${key}`} aria-hidden="true"/>{label}</span>)}
       </div>
       <div className="agent-runtime-body">
-        <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); const operational = agentOperationalState(agent); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active ' : ''}state-${operational.key}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>
-          <span className={`agent-runtime-dot state-${operational.key}`} aria-hidden="true"/><span><strong>{agent.label}</strong><small>{agent.role === 'supervisor' ? 'Supervisor' : 'Worker'} · {statusLabel(agent)}{agent.keep_flowing_active ? ' · Keep flowing' : ''}</small>{foreign ? <em className="agent-runtime-foreign" title={`Ocupado com uma tarefa do projeto ${foreign}`}>Outro projeto · {projectLabel(foreign)}</em> : null}</span><span className="agent-runtime-agent-stats">{engagedTask(agent) && <code>{engagedTask(agent)?.type}</code>}<code className="agent-runtime-memory-pill">{memoryLabel(agent.memory?.rss_bytes, agent.memory?.available)}</code></span>
+        <div className="agent-runtime-list" role="list" aria-label="Instâncias de agentes">{runtime.agents.map((agent) => { const foreign = foreignProject(agent, projectPath); const operational = agentDisplayState(agent, Boolean(foreign)); return <button type="button" role="listitem" key={agent.id} className={`${selected?.id === agent.id ? 'active ' : ''}state-${operational.key}${foreign ? ' foreign-project' : ''}`} onClick={() => { setSelectedId(agent.id); setInteractionId(undefined); setSnapshot(undefined) }}>
+          <span className={`agent-runtime-dot state-${operational.key}`} aria-hidden="true"/><span><strong>{agent.label}</strong><small>{agent.role === 'supervisor' ? 'Supervisor' : 'Worker'} · {statusLabel(agent, Boolean(foreign))}{!foreign && agent.keep_flowing_active ? ' · Keep flowing' : ''}</small>{foreign ? <em className="agent-runtime-foreign" title={`Ocupado com uma tarefa do projeto ${foreign}`}>Outro projeto · {projectLabel(foreign)}</em> : null}</span><span className="agent-runtime-agent-stats">{!foreign && engagedTask(agent) && <code>{engagedTask(agent)?.type}</code>}<code className="agent-runtime-memory-pill">{memoryLabel(agent.memory?.rss_bytes, agent.memory?.available)}</code></span>
         </button> })}</div>
         {selected && <div className="agent-runtime-detail">
-          <div className={`agent-runtime-detail-heading state-${agentOperationalState(selected).key}`}><div><span className={`agent-runtime-dot state-${agentOperationalState(selected).key}`} aria-hidden="true"/><strong>{selected.label}</strong></div><span className="agent-runtime-status-pill">{statusLabel(selected)}</span></div>
-          {/* Naming the owning project explains the occupancy; nothing else
-              about that project's task crosses this boundary. */}
-          {selectedForeign ? <p className="agent-runtime-foreign-note" role="status">Ocupado com uma tarefa do projeto <b title={selectedForeign}>{projectLabel(selectedForeign)}</b>. Fica disponível para este projeto quando terminar.</p> : null}
-          {(() => { const task = selectedEngagedTask || selected.last_task; return <dl><div><dt>Loop</dt><dd>{selected.loop_active === false ? 'Parado' : 'Ativo'}</dd></div>
-            {/* The chat is named, not identified by its opaque id, and the name
-                is a way in: the operator reading this panel is looking for the
-                conversation, not for the string that addresses it. */}
-            <div><dt>Chat</dt><dd className="agent-runtime-link-value">{selectedChat
-              ? <><span title={selected.chat_id}>{selectedChat.title}</span><button type="button" className="agent-runtime-inline-link" title={`Abrir o chat ${selectedChat.title}`} aria-label={`Abrir o chat ${selectedChat.title}`} onClick={() => onGoToChat?.(selectedChat.id, selectedChat.sessionId)} disabled={!onGoToChat}><Icon name="external" size={12}/></button></>
-              : selectedForeign && selected.chat_id ? <span>Conversa do projeto {projectLabel(selectedForeign)}</span>
-              : short(selected.chat_id)}</dd></div>
-            {/* The pool is shared, so which project a slot is working for is
-                part of reading it — and reaching that project is one click,
-                whether it is bound in this window or open in another. */}
-            <div><dt>Projeto</dt><dd className="agent-runtime-link-value">{selectedProject
-              ? <><span title={selectedProject}>{projectLabel(selectedProject)}</span>{selectedProject !== projectPath && <button type="button" className="agent-runtime-inline-link" title={`Trazer o projeto ${projectLabel(selectedProject)} para foco`} aria-label={`Trazer o projeto ${projectLabel(selectedProject)} para foco`} onClick={() => onFocusProject?.(selectedProject)} disabled={!onFocusProject}><Icon name="workspace" size={12}/></button>}</>
-              : '—'}</dd></div>
-            {selected.role === 'supervisor' && <div><dt>Vínculo</dt><dd>{selected.binding_hold ? `Retido · ${selected.binding_hold}` : selected.chat_id ? 'Livre para outro chat' : 'Sem chat'}</dd></div>}<div><dt>Tarefa</dt><dd>{task ? `${task.type} · ${task.task_id}${selectedEngagedTask ? '' : ' · última'}` : 'Sem tarefa registada'}</dd></div><div><dt>Task state</dt><dd>{short(task?.status)}</dd></div><div><dt>Pedido</dt><dd>{short(task?.request_id)}</dd></div><div><dt>Lineage</dt><dd>{short(task?.root_request_id)}</dd></div><div><dt>Conversa</dt><dd>{short(task?.conversation_id)}</dd></div><div><dt>Tentativa</dt><dd>{task ? `${task.attempt}/${task.max_attempts}` : '—'}</dd></div><div><dt>Último claim</dt><dd>{timeLabel(selected.last_claim_at)}</dd></div>{selected.residency && <><div><dt>Residência</dt><dd>{short(selected.residency.resident_lane)} · rotação #{selected.residency.rotation_position + 1}</dd></div><div><dt>Dwell mínimo</dt><dd>{timeLabel(selected.residency.min_resident_until)}</dd></div><div><dt>Assignment epoch</dt><dd>{selected.residency.assignment_epoch}{selected.residency.navigation_in_progress ? ' · a navegar' : ''}{selected.residency.non_preemptive ? ' · não preemptível' : ''}</dd></div></>}<div><dt>Lease</dt><dd>{timeLabel(task?.lease_expires_at)}</dd></div><div><dt>not_before</dt><dd>{timeLabel(task?.not_before)}</dd></div><div><dt>Estado</dt><dd>{statusLabel(selected)}{selected.error || task?.last_error ? ` · ${selected.error || task?.last_error}` : ''}</dd></div>{selected.activity && selected.task ? <div><dt>Fase desde</dt><dd>{timeLabel(selected.activity.since)}</dd></div> : null}<div><dt>RAM (RSS)</dt><dd>{memoryLabel(selected.memory?.rss_bytes, selected.memory?.available)}{selected.memory?.shared_process ? ' · processo partilhado' : ''}</dd></div><div><dt>Navegador</dt><dd>{selected.browser.available ? `WebContents #${selected.browser.web_contents_id} · PID ${selected.browser.os_process_id || '—'}` : 'Ainda não criado'}</dd></div><div><dt>Página</dt><dd title={selected.browser.url}>{short(selected.browser.title || selected.browser.url, selected.browser.available ? 'Sem página carregada' : '—')}</dd></div></dl> })()}
+          <div className={`agent-runtime-detail-heading state-${agentDisplayState(selected, Boolean(selectedForeign)).key}`}><div><span className={`agent-runtime-dot state-${agentDisplayState(selected, Boolean(selectedForeign)).key}`} aria-hidden="true"/><strong>{selected.label}</strong></div><span className="agent-runtime-status-pill">{statusLabel(selected, Boolean(selectedForeign))}</span></div>
+          <AgentRuntimeDetails agent={selected} projectPath={projectPath} projectName={projectLabel(selectedProject || selectedForeign || '')} foreignProject={selectedForeign} projectId={selectedProject} chat={selectedChat} task={selectedForeign ? undefined : selectedEngagedTask || selected.last_task} taskIsCurrent={!selectedForeign && Boolean(selectedEngagedTask)} stateLabel={statusLabel(selected, Boolean(selectedForeign))} onGoToChat={onGoToChat} onFocusProject={onFocusProject}/>
           {selected.role === 'worker' && <div className="agent-runtime-worker-actions"><button type="button" className="agent-runtime-icon-button" aria-pressed={selected.keep_flowing || runtime.policies.keep_flowing_global} aria-label={runtime.policies.keep_flowing_global ? 'Keep flowing · global' : selected.keep_flowing ? 'Keep flowing · ativo' : 'Keep flowing · inativo'} title={runtime.policies.keep_flowing_global ? 'Keep flowing global ativo' : selected.keep_flowing ? 'Desativar Keep flowing neste Worker' : 'Ativar Keep flowing neste Worker'} disabled={busy || runtime.policies.keep_flowing_global} onClick={() => void setWorkerKeepFlowing(selected.id, !selected.keep_flowing)}><Icon name="refresh" size={14}/></button>{selected.task && !selectedForeign && !runtime.policies.keep_flowing_global && !selected.keep_flowing && !selected.task.keep_flowing ? <button type="button" className="agent-runtime-icon-button" aria-label="Keep flowing nesta tarefa" title="Keep flowing nesta tarefa" disabled={busy} onClick={() => void enableTaskKeepFlowing()}><Icon name="refresh" size={14}/></button> : null}{!selected.task && selected.status === 'idle' && selected.loop_active !== false && !selected.keep_flowing_active && !selectedForeign ? <button type="button" className="agent-runtime-icon-button" aria-label="Selecionar tarefas" title={taskPickerOpen ? 'Fechar seleção de tarefas' : 'Selecionar tarefas'} disabled={busy} onClick={() => taskPickerOpen ? setTaskPickerOpen(false) : void loadAssignableTasks()}><Icon name="list" size={14}/></button> : null}<button type="button" className="agent-runtime-icon-button" aria-label="Seguir (flow)" title="Seguir Worker no flow" disabled={busy || !selected.browser.available || Boolean(selectedForeign)} onClick={followWorker}><Icon name="monitor" size={14}/></button><button type="button" className="agent-runtime-icon-button" aria-pressed={interactionId === selected.id} aria-label={interactionId === selected.id ? 'Terminar interação' : 'Interagir aqui'} title={interactionId === selected.id ? 'Terminar interação' : selectedEngagedTask ? 'Abrir a instância em tamanho real durante a tarefa' : 'Interagir aqui'} disabled={busy || !selected.browser.available || Boolean(selectedForeign)} onClick={() => selectedEngagedTask ? followWorker() : setInteractionId(interactionId === selected.id ? undefined : selected.id)}><Icon name="cursor" size={14}/></button><button type="button" className="agent-runtime-icon-button" aria-label="Capturar imagem" title="Capturar imagem" disabled={busy || !selected.browser.available || Boolean(selectedForeign)} onClick={() => void capture()}><Icon name="camera" size={14}/></button></div>}
           {selected.role === 'worker' && selected.keep_flowing_active && (selected.task?.keep_flowing || selected.last_task?.keep_flowing) && !selected.keep_flowing && !runtime.policies.keep_flowing_global ? <p className="agent-runtime-task-keep-flowing" role="status">Keep flowing temporário ativo apenas para esta tarefa; mantém-se durante esperas/reclaims da mesma tarefa e termina quando ela concluir.</p> : null}
           {selected.role === 'worker' && taskPickerOpen && selected.status === 'idle' && selected.loop_active !== false && !selected.task && !selected.keep_flowing_active && !selectedForeign ? <div className="agent-runtime-task-picker"><div className="agent-runtime-task-picker-heading"><strong>Atribuir tarefas a {selected.label}</strong><small>O Worker executa uma tarefa de cada vez. Keep flowing temporário mantém a tarefa durante as esperas e termina quando ela concluir.</small></div>{availableTasks.length ? <div className="agent-runtime-task-picker-list">{availableTasks.map((task) => <label key={task.task_id}><input type="checkbox" checked={selectedTaskIds.includes(task.task_id)} onChange={(event) => setSelectedTaskIds((current) => event.target.checked ? [...current, task.task_id] : current.filter((id) => id !== task.task_id))}/><span><b>{task.type}</b><small>{task.task_id}</small></span></label>)}</div> : <p>Não existem tarefas por executar neste projeto.</p>}<div className="agent-runtime-task-picker-actions"><select aria-label="Modo das tarefas atribuídas" value={taskAssignmentMode} disabled={busy} onChange={(event) => setTaskAssignmentMode(event.target.value === 'keep_flowing' ? 'keep_flowing' : 'standard')}><option value="standard">Modo atual do Worker</option><option value="keep_flowing">Keep flowing temporário</option></select><button type="button" className="agent-runtime-icon-button" aria-label={selectedTaskIds.length ? `Atribuir ${selectedTaskIds.length}` : 'Atribuir tarefas'} title={selectedTaskIds.length ? `Atribuir ${selectedTaskIds.length} tarefas` : 'Selecione tarefas para atribuir'} disabled={busy || !selectedTaskIds.length} onClick={() => void assignSelectedTasks()}><Icon name="check" size={14}/></button></div></div> : null}

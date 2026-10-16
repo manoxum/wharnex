@@ -1,17 +1,22 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { tabBarSource, tabButtonSource, terminalTabsSource } from '../../cascade/tabStyles'
 import { describe, expect, it } from 'vitest'
 import { css, terminalSource, lastRule } from '../../cascade/styleRules'
 
 describe('editor explorer terminal visual consolidation', () => {
   it('uses one flat IDE grammar across the three requested core surfaces', () => {
+    const explorer = readFileSync(resolve(process.cwd(), 'src/components/agent/explorer/ProjectExplorerTree.tsx'), 'utf8')
+    const editorContext = readFileSync(resolve(process.cwd(), 'src/components/editor/canvas/context/EditorContextBar.tsx'), 'utf8')
     expect(css).toContain('/* v1.2.50 — one visual grammar for Editor, Explorer and Terminal.')
     expect(tabBarSource).toContain('min-h-10')
-    expect(lastRule('.editor-contextbar')).toContain('background: var(--theme-surface)')
-    expect(lastRule('.agent-project-tree')).toContain('padding: 4px 0 8px')
-    expect(lastRule('.agent-tree-row')).toContain('height: 30px')
-    expect(lastRule('.agent-tree-row')).toContain('border-left: 2px solid transparent')
-    expect(lastRule('.agent-tree-row.selected-node')).toContain('border-left-color: var(--theme-accent)')
-    expect(lastRule('.agent-tree-row.selected-node')).toContain('box-shadow: none')
+    expect(editorContext).toContain('border-b border-whx-border-soft bg-whx-surface')
+    expect(editorContext).toContain('aria-label="Ações do ficheiro"')
+    expect(explorer).toContain('agent-project-tree min-h-0 flex-1 overflow-auto bg-whx-bg')
+    expect(explorer).toContain('h-[28px]')
+    expect(explorer).toContain('border-l-[color:var(--theme-tab-active)]')
+    expect(explorer).toContain('bg-whx-selection')
+    expect(explorer).toContain('data-selected={selected}')
     expect(tabBarSource).toContain('min-h-10')
     expect(tabBarSource).toContain('overflow-x-auto')
     expect(tabBarSource).toContain('[scrollbar-width:none]')

@@ -79,17 +79,6 @@
 .git-history-commit-close { flex: 0 0 auto; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: color-mix(in srgb, var(--theme-bg) 82%, transparent); }
 .git-history-commit-disclosure { padding: 0 16px; background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg)); }
 .git-history-commit-disclosure > summary { min-height: 36px; }
-.git-history-commit-modal > .git-diff-review { grid-template-columns: minmax(230px, 27%) minmax(0, 1fr); background: var(--theme-bg); }
-.git-history-commit-modal .git-diff-review-files { padding: 8px; gap: 4px; background: color-mix(in srgb, var(--theme-surface) 94%, var(--theme-bg)); }
-.git-history-commit-modal .git-diff-review-file-list > button { min-height: 36px; padding: 8px 9px; border-radius: 8px; }
-.git-history-commit-modal .git-diff-review-file-list > button.active {
-  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border));
-  background: color-mix(in srgb, var(--theme-accent) 11%, var(--theme-surface));
-  box-shadow: inset 2px 0 0 var(--theme-accent);
-}
-.git-history-commit-modal .git-diff-review-file-heading { min-height: 36px; padding: 0 12px; background: color-mix(in srgb, #1b1e19 90%, var(--theme-accent) 3%); }
-.git-history-commit-modal .change-diff-toolbar { min-height: 42px; padding: 6px 10px 6px 12px; }
-.git-history-commit-modal .change-diff-editor { background: #121411; }
 
 @media (max-width: 760px) {
   .git-history-commit-modal { width: 100%; height: calc(100dvh - 16px); border-radius: 10px; }
@@ -99,8 +88,6 @@
   .git-history-commit-stat { min-height: 30px; padding: 5px 7px; }
   .git-history-commit-stat small { display: none; }
   .git-history-commit-stat.files { display: none; }
-  .git-history-commit-modal > .git-diff-review { grid-template-columns: 1fr; grid-template-rows: minmax(110px, 26%) minmax(0, 1fr); }
-  .git-history-commit-modal > .git-diff-review.files-collapsed { grid-template-rows: 38px minmax(0, 1fr); }
 }
 
 @media (max-width: 520px) {

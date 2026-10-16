@@ -10,7 +10,7 @@ import { desktopBridge } from '../../../lib/desktop/bridge/desktop'
 import { errorMessage } from '../../../lib/workspace/dialogs/errorMessage'
 import { promptDialog } from '../../../lib/desktop/bridge/appDialog'
 import { OrchestratorTaskAttention } from '../tasks/OrchestratorTaskAttention'
-import { OrchestratorRecentReviews } from './OrchestratorRecentReviews'
+import { OrchestratorActivity } from './OrchestratorActivity'
 
 export function OrchestratorOverview({ session, overview, planningTasks = [], chats = [], chatProps, onGoToChat, onError, proposal, busy, onProposal, onRun, onOpenTasks, onOpenPlanTasks, onSelectTask, onSelectPlanningRequest }: {
   session: Session
@@ -33,10 +33,6 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   onSelectPlanningRequest?: (request: OverviewData['planning_requests'][number]) => void
 }) {
   const [manualJSON, setManualJSON] = useState('')
-  const active = overview.tasks.filter((task) => task.status === 'DOING')
-  const ready = overview.tasks.filter((task) => task.status === 'READY')
-  const review = overview.tasks.filter((task) => task.status === 'REVIEW')
-  const completed = overview.tasks.filter((task) => task.status === 'COMPLETE')
   const draftPlan = proposal?.plan || overview.plans.find((plan) => plan.status === 'DRAFT')
   const draftTasks = draftPlan ? overview.tasks.filter((task) => task.plan_id === draftPlan.id) : []
   const planningRequests = useMemo(() => [...overview.planning_requests].sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [overview.planning_requests])
@@ -172,22 +168,6 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
       </div>
     </section>}
 
-    <section className="orchestrator-cockpit">
-      <header><div><span className="text-sm uppercase tracking-[0.07em] text-[var(--theme-text-muted)]">Visão operacional</span><strong className="text-lg">Fluxo do projeto</strong></div><button className="text-base" type="button" onClick={onOpenTasks}>Abrir todas as Tasks <Icon name="arrow-right" size={14}/></button></header>
-      <div className="orchestrator-metrics">
-        <Metric label="Em execução" value={active.length} note={`${overview.mutation_slots_used}/${overview.mutation_slots} slot de mutação`} />
-        <Metric label="Prontas" value={ready.length} note="elegíveis para o próximo slot" />
-        <Metric label="Em revisão" value={review.length} note="execução concluída" />
-        <Metric label="Concluídas" value={completed.length} note="dependências liberadas" />
-      </div>
-      <div className="orchestrator-active-strip">
-        <div className="orchestrator-slot"><span className={overview.mutation_slots_used ? 'busy' : 'free'}/><strong className="text-base">Mutation slot</strong><small className="text-sm text-[var(--theme-text-muted)]">{overview.mutation_slots_used ? active[0]?.title || 'Ocupado' : 'Livre para a próxima tarefa READY'}</small></div>
-        <OrchestratorRecentReviews reviews={overview.recent_reviews || []} tasks={overview.tasks} onSelectTask={onSelectTask}/>
-      </div>
-    </section>
+    <OrchestratorActivity overview={overview} onOpenTasks={onOpenTasks} onSelectTask={onSelectTask}/>
   </div>
-}
-
-function Metric({ label, value, note }: { label: string; value: number; note: string }) {
-  return <div><span className="text-sm text-[var(--theme-text-muted)]">{label}</span><strong className="text-2xl leading-none tracking-[-0.04em]">{value}</strong><small className="text-sm text-[var(--theme-text-soft)]">{note}</small></div>
 }
