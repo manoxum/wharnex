@@ -59,7 +59,6 @@ import {
   Server,
   Settings2,
   Shield,
-  Sparkles,
   Square,
   SquarePen,
   Sun,
@@ -86,7 +85,7 @@ export type IconName =
   | 'activity' | 'sparkles' | 'more-horizontal' | 'kanban' | 'table' | 'graph'
   | 'filter' | 'pin'
 
-const icons: Record<IconName, LucideIcon> = {
+const icons: Record<IconName, LucideIcon | null> = {
   pin: Pin,
   send: Send,
   play: Play,
@@ -153,7 +152,8 @@ const icons: Record<IconName, LucideIcon> = {
   container: Container,
   schema: Workflow,
   activity: Activity,
-  sparkles: Sparkles,
+  // Retain the shared name for callers, but retire this decoration everywhere.
+  sparkles: null,
   'more-horizontal': Ellipsis,
   kanban: Kanban,
   table: Table,
@@ -163,5 +163,6 @@ const icons: Record<IconName, LucideIcon> = {
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const Glyph = icons[name]
+  if (!Glyph) return null
   return <Glyph aria-hidden="true" focusable="false" size={size} strokeWidth={2}/>
 }

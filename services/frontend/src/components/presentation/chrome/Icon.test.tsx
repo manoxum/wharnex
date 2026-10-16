@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { Icon } from './Icon'
 
 describe('Icon', () => {
+  it.each([12, 13, 15, 16])('omits the retired sparkles decoration at size %i without reserving space', (size) => {
+    const { container } = render(<Icon name="sparkles" size={size}/>)
+
+    expect(container.childNodes).toHaveLength(0)
+  })
+
   it('renders the shared Lucide stroke and size contract for product symbols', () => {
     const symbols = ['agent', 'chatgpt', 'git', 'workspace', 'search', 'terminal', 'network', 'graph'] as const
     const { container } = render(<>{symbols.map((name) => <Icon key={name} name={name} size={16}/>)}</>)
