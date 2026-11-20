@@ -152,11 +152,6 @@ _(reserved — no entries yet)_
 - feat(git): review project-header pushes before publishing and allow a quick all-changes commit that recalculates the push diff before final confirmation.
 
 
-### Chat 9bad6c3f-3e14-4eb3-b9ae-200469082173 (2026-09-24)
-
-_(reserved — no entries yet)_
-
-
 ### Chat 16f4a870-eb30-46cf-9116-a180a53ef5dc (2026-09-24)
 
 _(reserved — no entries yet)_
