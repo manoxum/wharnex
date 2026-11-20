@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import type { ChatAgentTask, OrchestratorOverview, OrchestratorPlan } from '../../../types'
 import { taskBrowserAgentId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../../lib/chat/transport/chatAgentTaskNav'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -10,18 +11,18 @@ const retryClassName = 'inline-flex min-h-8 items-center gap-1.5 rounded-lg bord
 function phasePresentation(phase: PlanningRequest['phase']) {
   switch (phase) {
     case 'AWAITING_APPROVAL':
-      return { label: 'Em análise', icon: 'plan' as const, card: 'border-l-[var(--theme-warning)] bg-[var(--theme-surface)]', marker: 'bg-[color-mix(in_srgb,var(--theme-warning)_14%,var(--theme-surface))] text-[var(--theme-warning)]', badge: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
+      return { label: uiText("Em análise"), icon: 'plan' as const, card: 'border-l-[var(--theme-warning)] bg-[var(--theme-surface)]', marker: 'bg-[color-mix(in_srgb,var(--theme-warning)_14%,var(--theme-surface))] text-[var(--theme-warning)]', badge: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
     case 'EXECUTING':
-      return { label: 'Em execução', icon: 'activity' as const, card: 'border-l-[var(--theme-accent)] bg-[var(--theme-surface)]', marker: 'bg-[var(--theme-accent-soft)] text-[var(--theme-accent)]', badge: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
+      return { label: uiText("Em execução"), icon: 'activity' as const, card: 'border-l-[var(--theme-accent)] bg-[var(--theme-surface)]', marker: 'bg-[var(--theme-accent-soft)] text-[var(--theme-accent)]', badge: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
     case 'REVIEW':
       return { label: 'Review', icon: 'search' as const, card: 'border-l-[var(--theme-warning)] bg-[var(--theme-surface)]', marker: 'bg-[color-mix(in_srgb,var(--theme-warning)_14%,var(--theme-surface))] text-[var(--theme-warning)]', badge: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
     case 'COMPLETED':
-      return { label: 'Concluído', icon: 'check' as const, card: 'border-l-[var(--theme-success)] bg-[var(--theme-surface)]', marker: 'bg-[color-mix(in_srgb,var(--theme-success)_12%,var(--theme-surface))] text-[var(--theme-success)]', badge: 'border-[var(--theme-success)] bg-[color-mix(in_srgb,var(--theme-success)_9%,var(--theme-surface))] text-[var(--theme-success)]' }
+      return { label: uiText("Concluído"), icon: 'check' as const, card: 'border-l-[var(--theme-success)] bg-[var(--theme-surface)]', marker: 'bg-[color-mix(in_srgb,var(--theme-success)_12%,var(--theme-surface))] text-[var(--theme-success)]', badge: 'border-[var(--theme-success)] bg-[color-mix(in_srgb,var(--theme-success)_9%,var(--theme-surface))] text-[var(--theme-success)]' }
     case 'ARCHIVED':
-      return { label: 'Encerrado', icon: 'archive' as const, card: 'border-l-[var(--theme-border)] bg-[var(--theme-surface)]', marker: 'bg-[var(--theme-muted)] text-[var(--theme-text-muted)]', badge: 'border-[var(--theme-border)] bg-[var(--theme-muted)] text-[var(--theme-text-muted)]' }
+      return { label: uiText("Encerrado"), icon: 'archive' as const, card: 'border-l-[var(--theme-border)] bg-[var(--theme-surface)]', marker: 'bg-[var(--theme-muted)] text-[var(--theme-text-muted)]', badge: 'border-[var(--theme-border)] bg-[var(--theme-muted)] text-[var(--theme-text-muted)]' }
     case 'PLANNING':
     default:
-      return { label: 'Em andamento', icon: 'activity' as const, card: 'border-l-[var(--theme-accent)] bg-[var(--theme-surface)]', marker: 'bg-[var(--theme-accent-soft)] text-[var(--theme-accent)]', badge: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
+      return { label: uiText("Em andamento"), icon: 'activity' as const, card: 'border-l-[var(--theme-accent)] bg-[var(--theme-surface)]', marker: 'bg-[var(--theme-accent-soft)] text-[var(--theme-accent)]', badge: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
   }
 }
 
@@ -47,10 +48,10 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
     <section className="mx-auto mb-[22px] w-full max-w-[1100px] overflow-hidden rounded-[14px] border border-[var(--theme-border-soft)] bg-[var(--theme-surface)] shadow-[0_8px_24px_var(--theme-shadow)]" aria-live="polite">
       <header className="flex min-h-[62px] flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--theme-border-soft)] bg-[var(--theme-elevated)] px-4 py-3">
         <div className="grid gap-0.5">
-          <span className="text-sm font-extrabold uppercase tracking-[0.08em] text-[var(--theme-accent)]">Fila durável</span>
-          <h2 className="m-0 text-lg font-semibold text-[var(--theme-text)]">Em planejamento</h2>
+          <span className="text-sm font-extrabold uppercase tracking-[0.08em] text-[var(--theme-accent)]">{uiText("Fila durável")}</span>
+          <h2 className="m-0 text-lg font-semibold text-[var(--theme-text)]">{uiText("Em planejamento")}</h2>
         </div>
-        <strong className="font-mono text-sm font-semibold leading-[1.3] text-[var(--theme-text-muted)]">{activeCount} ativo{activeCount === 1 ? '' : 's'} · {requests.length} pedido{requests.length === 1 ? '' : 's'}</strong>
+        <strong className="font-mono text-sm font-semibold leading-[1.3] text-[var(--theme-text-muted)]">{activeCount} {' '}{uiText("ativo")}{activeCount === 1 ? '' : 's'} · {requests.length} {' '}{uiText("pedido")}{requests.length === 1 ? '' : 's'}</strong>
       </header>
       <div className="grid max-h-[440px] overflow-x-hidden overflow-y-auto">
         {requests.map((planning) => {
@@ -76,14 +77,14 @@ export function OrchestratorPlanningQueue({ requests, tasks, chats, plans = [], 
                     <Icon name={state.icon} size={12}/>{state.label}
                   </span>
                 </div>
-                <span className="mt-1 block break-words text-sm leading-[1.45] text-[var(--theme-text-muted)]">Request <code className="font-mono tabular-nums text-[var(--theme-text-soft)]" translate="no">{planning.request_id}</code> · tentativa {planning.attempt}/{planning.max_attempts}</span>
-                {planning.last_error ? <small className="mt-1.5 block break-words text-sm leading-[1.45] text-[var(--theme-danger)]">{planning.last_error}</small> : <small className="mt-1.5 block break-words text-sm leading-[1.45] text-[var(--theme-text-muted)]">{['DONE', 'CANCELLED'].includes(planning.status) ? 'Planejamento encerrado.' : 'Pode sair do Orchestrator: um Worker continuará esta entrega.'}</small>}
+                <span className="mt-1 block break-words text-sm leading-[1.45] text-[var(--theme-text-muted)]">Request <code className="font-mono tabular-nums text-[var(--theme-text-soft)]" translate="no">{planning.request_id}</code> {' '}{uiText("· tentativa")}{' '}{planning.attempt}/{planning.max_attempts}</span>
+                {planning.last_error ? <small className="mt-1.5 block break-words text-sm leading-[1.45] text-[var(--theme-danger)]">{planning.last_error}</small> : <small className="mt-1.5 block break-words text-sm leading-[1.45] text-[var(--theme-text-muted)]">{['DONE', 'CANCELLED'].includes(planning.status) ? uiText("Planejamento encerrado.") : uiText("Pode sair do Orchestrator: um Worker continuará esta entrega.")}</small>}
                 {(onSelect || (plan && onOpenTasks) || workerId || (resolvedChatId && onGoToChat) || ['FAILED', 'ATTENTION'].includes(planning.status)) && <div className={`mt-3 flex flex-wrap gap-2 ${onSelect ? 'pointer-events-auto' : ''}`}>
-                  {onSelect ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onSelect(planning) }} title="Ver o detalhe desta orquestração no painel lateral"><Icon name="info" size={13}/> Detalhes</button> : null}
-                  {plan && onOpenTasks ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onOpenTasks(plan.id) }} title="Abrir Tasks mostrando só as tasks desta orquestração"><Icon name="filter" size={13}/> Ver tasks</button> : null}
-                  {workerId ? <button className={`${actionClassName} ${isFollowing ? 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' : ''}`} type="button" aria-pressed={isFollowing} onClick={(event) => { event.stopPropagation(); workerFollows.toggle(planning.task_id, workerId) }} title="Acompanhar a instância do Worker que gera este plano numa janela separada"><Icon name="monitor" size={13}/> {isFollowing ? 'A acompanhar' : 'Acompanhar instância'}</button> : null}
-                  {resolvedChatId && onGoToChat ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onGoToChat(resolvedChatId, backingTask?.session_id) }} title="Abrir o chat Wharnex deste planeamento"><Icon name="bridge" size={13}/> Ver chat</button> : null}
-                  {['FAILED', 'ATTENTION'].includes(planning.status) ? <button className={retryClassName} type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); onRetry(planning.request_id) }}><Icon name="refresh" size={13}/> Retentar</button> : null}
+                  {onSelect ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onSelect(planning) }} title={uiText("Ver o detalhe desta orquestração no painel lateral")}><Icon name="info" size={13}/> {' '}{uiText("Detalhes")}</button> : null}
+                  {plan && onOpenTasks ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onOpenTasks(plan.id) }} title={uiText("Abrir Tasks mostrando só as tasks desta orquestração")}><Icon name="filter" size={13}/> {' '}{uiText("Ver tasks")}</button> : null}
+                  {workerId ? <button className={`${actionClassName} ${isFollowing ? 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' : ''}`} type="button" aria-pressed={isFollowing} onClick={(event) => { event.stopPropagation(); workerFollows.toggle(planning.task_id, workerId) }} title={uiText("Acompanhar a instância do Worker que gera este plano numa janela separada")}><Icon name="monitor" size={13}/> {isFollowing ? uiText("A acompanhar") : uiText("Acompanhar instância")}</button> : null}
+                  {resolvedChatId && onGoToChat ? <button className={actionClassName} type="button" onClick={(event) => { event.stopPropagation(); onGoToChat(resolvedChatId, backingTask?.session_id) }} title={uiText("Abrir o chat Wharnex deste planeamento")}><Icon name="bridge" size={13}/> {' '}{uiText("Ver chat")}</button> : null}
+                  {['FAILED', 'ATTENTION'].includes(planning.status) ? <button className={retryClassName} type="button" disabled={busy} onClick={(event) => { event.stopPropagation(); onRetry(planning.request_id) }}><Icon name="refresh" size={13}/> {' '}{uiText("Retentar")}</button> : null}
                 </div>}
               </div>
             </div>

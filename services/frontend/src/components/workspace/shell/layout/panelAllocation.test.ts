@@ -1,3 +1,4 @@
+import { supportingOverlayWidth } from './panelAllocation'
 import { describe, expect, it } from 'vitest'
 import { allocateSupportingPanels, primaryWorkspaceReserve } from './panelAllocation'
 import { panelPriority, rememberPanelPriority } from './panelPriority'
@@ -46,4 +47,10 @@ describe('primary workspace allocation', () => {
     localStorage.removeItem('wharnex.workbench.panel-priority.v1:/priority-first')
     localStorage.removeItem('wharnex.workbench.panel-priority.v1:/priority-second')
   })
+})
+
+it('keeps overlays between the two 48px rails even in narrow windows', () => {
+  expect(supportingOverlayWidth(600, 700, 'docker')).toBe(504)
+  expect(supportingOverlayWidth(1200, 900, 'docker')).toBe(720)
+  expect(supportingOverlayWidth(80, 700, 'project')).toBe(0)
 })

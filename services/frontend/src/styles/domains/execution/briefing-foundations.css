@@ -113,7 +113,6 @@
 .editor-statusbar { height: 23px; flex: 0 0 23px; padding: 0 10px; border-top: 1px solid #d9dcd2; background: #eff0ea; color: #7c8176; display: flex; align-items: center; justify-content: space-between; font: 8px ui-monospace, 'SFMono-Regular', Consolas, monospace; }
 .terminal-resizer { height: 7px; flex: 0 0 7px; position: relative; background: var(--theme-border, #33362f); cursor: ns-resize; touch-action: none; }
 .terminal-resizer::after { content: ''; position: absolute; left: 50%; top: 2px; width: 44px; height: 2px; border-radius: 999px; background: var(--theme-text-muted, #778072); transform: translateX(-50%); opacity: .7; }
-.terminal-resizer:hover, body.terminal-resizing .terminal-resizer { background: color-mix(in srgb, var(--theme-accent, #78b841) 38%, var(--theme-border, #33362f)); }
 body.terminal-resizing { cursor: ns-resize; user-select: none; }
 
 /* Interactive terminal */

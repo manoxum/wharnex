@@ -5,51 +5,26 @@
 .settings-theme-card .accent-settings { margin-top:0; }
 .typography-settings-grid label { color:var(--theme-text-muted); }
 .typography-settings-grid select,[data-workbench-settings] select { border-color:var(--theme-border); background:var(--theme-surface); color:var(--theme-text); }
-[data-workbench-settings] select option,.quick-switcher-select-shell select option { background:var(--theme-elevated); color:var(--theme-text); }
+
+[data-workbench-settings] select option{ background:var(--theme-elevated); color:var(--theme-text); }
 .settings-feedback-card .settings-toggle { margin:0; border-color:var(--theme-border-soft); background:var(--theme-surface); }
 [data-workbench-settings] > footer { border-top-color:var(--theme-border-soft); background:var(--theme-elevated); }
-.quick-switcher-select-shell select { color-scheme:inherit; }
-:root[data-theme='dark'] .quick-switcher-select-shell select,:root[data-theme='dark'] [data-workbench-settings] select { color-scheme:dark; }
-:root[data-theme='light'] .quick-switcher-select-shell select,:root[data-theme='light'] [data-workbench-settings] select { color-scheme:light; }
+
+:root[data-theme='dark'] [data-workbench-settings] select { color-scheme:dark; }
+:root[data-theme='light'] [data-workbench-settings] select { color-scheme:light; }
 @media (max-width:900px) { .settings-premium-grid { grid-template-columns:1fr; } }
-
-
 /* Premium workbench legibility, pinnable rails and bounded terminal. */
-.workspace-rail-primary,
-.workspace-rail-pinned { width:100%; display:flex; flex-direction:column; align-items:center; gap:4px; }
-.workspace-rail-primary { flex:0 0 auto; }
-.workspace-rail-pinned { flex:0 0 auto; margin-top:auto; padding-top:6px; border-top:1px solid transparent; }
-.workspace-rail-pinned.has-tools { border-top-color:var(--theme-border-soft); }
-.workspace-rail-pin-target { width:24px; height:5px; flex:0 0 5px; border-radius:999px; background:color-mix(in srgb,var(--theme-text-muted) 28%,transparent); opacity:.42; transition:width .16s ease,opacity .16s ease,background .16s ease; }
-.workspace-side-rail:has(button[draggable='true']) .workspace-rail-pinned:hover .workspace-rail-pin-target { width:30px; opacity:.9; background:color-mix(in srgb,var(--theme-accent) 58%,var(--theme-text-muted)); }
-.workspace-side-rail button[data-pinned='true'] { color:color-mix(in srgb,var(--theme-text-soft) 88%,var(--theme-text-muted)); }
-.workspace-side-rail button[data-pinned='true']:not(.active)::after { content:''; width:3px; height:3px; position:absolute; right:3px; bottom:3px; border-radius:50%; background:var(--theme-text-muted); opacity:.55; }
-.workspace-side-rail button:hover { background:var(--theme-hover); color:var(--theme-text); }
-.workspace-side-rail button.active { background:color-mix(in srgb,var(--theme-accent-soft) 72%,var(--theme-hover)); color:var(--theme-text); box-shadow:none; }
+
 .workspace-center-column > .terminal-resizer { width:100%; min-width:0; margin:0; box-sizing:border-box; }
 .workspace-center-column > .terminal-workspace { width:100%; min-width:0; margin:0; box-sizing:border-box; }
 .terminal-workspace { border-left:1px solid var(--theme-border); border-right:1px solid var(--theme-border); box-shadow:0 -10px 28px color-mix(in srgb,var(--theme-shadow) 30%,transparent); }
 
-:root[data-tool-rail='bottom'] .workspace-rail-primary,
-:root[data-tool-rail='bottom'] .workspace-rail-pinned { width:auto; height:100%; flex-direction:row; gap:5px; }
-:root[data-tool-rail='bottom'] .workspace-rail-pinned { margin:0 0 0 auto; padding:0 0 0 6px; border-top:0; border-left:1px solid transparent; }
-:root[data-tool-rail='bottom'] .workspace-rail-pinned.has-tools { border-left-color:var(--theme-border-soft); }
-:root[data-tool-rail='bottom'] .workspace-rail-pin-target { width:5px; height:22px; flex-basis:5px; }
-:root[data-tool-rail='bottom'] .workspace-side-rail:has(button[draggable='true']) .workspace-rail-pinned:hover .workspace-rail-pin-target { width:5px; height:28px; }
-
 /* The centre is the elastic workbench surface. Side drawers own their chosen
    widths and the shared splitter geometry keeps only a small recovery reserve;
    no late CSS rule may pin the centre back to a desktop-sized minimum. */
-.workspace-main-row > .workspace-side-rail .workspace-rail-primary,
-.workspace-main-row > .workspace-side-rail .workspace-rail-pinned { gap:6px; }
-.workspace-main-row > .agent-activity-bar button { height:40px; }
+
 .agent-workspace.agent-rail-unified {
   grid-template-columns:minmax(0,var(--agent-chat-width)) 6px minmax(0,1fr);
-}
-.agent-splitter {
-  border-left-color:transparent;
-  background:transparent;
-  transition:background .14s ease,border-color .14s ease;
 }
 .agent-attention-summary:not(.urgent) {
   border-color:transparent;
@@ -60,13 +35,3 @@
   background:var(--theme-hover);
   color:var(--theme-text);
 }
-.workspace-main-row > .workspace-side-rail button::before,
-.workspace-main-row > .workspace-side-rail-right button::before {
-  width:2px;
-  left:0;
-  right:auto;
-  top:7px;
-  bottom:7px;
-  border-radius:0 2px 2px 0;
-}
-

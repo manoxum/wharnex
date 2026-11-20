@@ -1,0 +1,13 @@
+import { chatControls } from './chatControls'
+import { taskSettings } from './taskSettings'
+import { projectTasks } from './projectTaskMessages'
+import { contentMessages } from './contentMessages'
+import { messages as toolContent } from './toolContent'
+import { messages as planningContent } from './planningContent'
+import { messages as readerContent } from './readerContent'
+import { editor } from './editor'
+import { workbench } from './workbench'
+import { messages as interfaceMessages } from './interfaceMessages'
+import { messages as ideSurfaceMessages } from './ideSurfaceMessages'
+import { messages as interfaceVocabulary } from './interfaceVocabulary'
+export const english: Record<string, string> = { ...interfaceMessages, ...ideSurfaceMessages, ...interfaceVocabulary, ...workbench, ...editor, ...toolContent, ...planningContent, ...readerContent, ...contentMessages, ...taskSettings, ...projectTasks, ...chatControls }

@@ -70,7 +70,6 @@
 .composer-file-reference-chip b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 calc(8.5px * var(--ui-font-scale))/1.2 var(--mono-font-family); }
 .composer-file-reference-chip button { width: 18px; height: 18px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #71806b; cursor: pointer; }
 .composer-file-reference-chip button:hover { background: #d8e4cc; color: #263322; }
-.composer-editor-shell { position: relative; flex: 1 1 auto; width: 100%; min-width: 0; min-height: 92px; display: flex; cursor: text; }
 .file-reference-menu { position: absolute; z-index: 30; left: 12px; bottom: 8px; width: min(520px, calc(100% - 24px)); overflow: hidden; border: 1px solid #bcc4b4; border-radius: 10px; background: rgba(249,250,246,.98); box-shadow: 0 16px 42px rgba(27,34,23,.18); backdrop-filter: blur(10px); }
 .file-reference-menu.directive-menu-layer { position: fixed; z-index: 340; right: auto; bottom: auto; box-sizing: border-box; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .file-reference-menu header { min-height: 34px; padding: 6px 9px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #dce1d7; }

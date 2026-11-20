@@ -6,6 +6,7 @@ import { IconButton } from '../../../presentation/workbench'
 import { ContentSkeleton } from '../../../presentation/chrome/Skeleton'
 import { useOperationalTab } from './useOperationalTab'
 import { useUtilityPanel } from './useUtilityPanel'
+import { publishUtilityState, subscribeUtilitySelection } from './utilityNavigation'
 
 const Problems = lazy(() => import('../../../execution/history/ExecutionErrorsDrawer').then((module) => ({ default: module.ExecutionErrorsDrawer })))
 const Output = lazy(() => import('./OperationalOutput').then((module) => ({ default: module.OperationalOutput })))
@@ -19,9 +20,11 @@ export function OperationalWorkbench({ session, chats, activeChatId, events, vis
   const [problemCount, setProblemCount] = useState<number | null>(null)
   useEffect(() => setProblemCount(null), [session.id])
   const panel = useUtilityPanel({ projectPath: session.project_path, visible, tab, problemCount, height, onHeight, onOpen, onClose })
+  useEffect(() => subscribeUtilitySelection((next) => { select(next); panel.expand() }), [select, panel.expand])
+  useEffect(() => { publishUtilityState({ tool: tab, visible: panel.expanded, problems: problemCount || 0 }) }, [tab, panel.expanded, problemCount])
   return <section ref={panel.root} aria-label="Ferramentas operacionais" data-expanded={panel.expanded} className="workbench-operational-panel relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden bg-whx-workspace" style={{ height: panel.panelHeight }}>
     {panel.expanded && <div role="separator" tabIndex={0} aria-orientation="horizontal" aria-label="Ajustar altura do painel inferior" aria-valuemin={panel.minimum} aria-valuemax={panel.maximum} aria-valuenow={Math.round(panel.panelHeight)}
-      className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-ns-resize touch-none bg-transparent transition-colors hover:bg-whx-accent/40 focus-visible:bg-whx-accent/40 focus-visible:outline-none motion-reduce:transition-none"
+      className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-ns-resize touch-none bg-transparent hover:bg-transparent focus-visible:bg-transparent focus-visible:outline-1 focus-visible:outline-whx-border-soft"
       onPointerDown={panel.beginResize} onDoubleClick={() => panel.resize(275)} onKeyDown={(event) => {
         if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
         event.preventDefault()

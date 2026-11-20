@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatGPTDesktopPane } from './ChatGPTDesktopPane'
+import { setLocalePreference } from '../../../lib/workspace/localization'
 
 class TestResizeObserver { observe() {}; disconnect() {}; unobserve() {} }
 const readyState = { url: 'https://chatgpt.com/', title: 'ChatGPT', loading: false, canGoBack: false, canGoForward: false, authMode: 'embedded' as const, authWindowOpen: false, authenticated: true }
@@ -29,7 +30,7 @@ function bindingBridge() {
 const props = { busy: false, chatId: 'chat-1', chatTitle: 'Chat 1', onChatGPTURL: vi.fn(() => true), onPlanFile: async () => '', onBundleFile: async () => '' }
 
 describe('ChatGPTDesktopPane binding control', () => {
-  beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); window.localStorage.clear() })
+  beforeEach(() => { vi.stubGlobal('ResizeObserver', TestResizeObserver); window.localStorage.clear(); setLocalePreference('pt') })
   afterEach(() => { cleanup(); delete window.wharnessDesktop; vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
   it('keeps recovery hidden after a prompt reaches a new conversation until the binding icon is clicked', async () => {

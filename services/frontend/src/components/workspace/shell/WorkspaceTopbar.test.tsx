@@ -166,6 +166,7 @@ describe('WorkspaceTopbar self-evolution', () => {
     const switches = container.querySelector('.workspace-switches')!
     const status = container.querySelector('.workspace-status')!
 
+    expect(header.className).toContain('!bg-whx-rail')
     expect(header.className).toContain('max-[900px]:!grid-cols-[minmax(0,1fr)_auto]')
     expect(header.className).toContain('max-[900px]:!h-auto')
     expect(switches.className).toContain('max-[900px]:!row-start-2')

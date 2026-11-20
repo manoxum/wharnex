@@ -64,9 +64,9 @@ describe('ProjectTodoPanel', () => {
     mocks.projectTodos.mockResolvedValue({ todos: [] })
     render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/> )
 
-    expect(await screen.findByText('Ainda não registaste uma ideia')).toBeTruthy()
+    expect(await screen.findByText('Sem tarefas')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Adicionar nova ideia' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Registar uma ideia' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Adicionar tarefa' }))
 
     expect(screen.getByTestId('todo-composer')).toBeTruthy()
     expect(screen.getByText('Descreva a ideia, necessidade, erro ou melhoria…')).toBeTruthy()
@@ -78,9 +78,9 @@ describe('ProjectTodoPanel', () => {
     render(<ProjectTodoPanel session={session} chatProps={{} as never} onClose={() => undefined} onError={() => undefined}/>)
 
     expect(screen.getByRole('status').textContent).toContain('A carregar TODOs')
-    expect(screen.queryByText('Ainda não registaste uma ideia')).toBeNull()
+    expect(screen.queryByText('Sem tarefas')).toBeNull()
     resolveTodos({ todos: [] })
-    expect(await screen.findByText('Ainda não registaste uma ideia')).toBeTruthy()
+    expect(await screen.findByText('Sem tarefas')).toBeTruthy()
   })
 
   it('keeps the composer hidden behind the add FAB and shows worker enrichment', async () => {

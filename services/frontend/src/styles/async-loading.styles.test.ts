@@ -24,10 +24,10 @@ describe('async loading styling architecture', () => {
     expect(legacy).not.toContain('.chat-entry-skeleton {')
   })
 
-  it('adds modest Git panel breathing room with a narrow-container override', () => {
+  it('leaves Git tab width and vertical spacing to Tailwind utilities', () => {
     const spacing = read('styles/domains/git/git-panel-spacing.css')
-    expect(spacing).toContain('.git-tab-content {\n  padding: 14px;')
-    expect(spacing).toContain('padding-inline: 2px;')
-    expect(spacing).toContain('@container semantic-panel (max-width: 430px)')
+    const content = read('components/git/review/presentation/GitTabContent.tsx')
+    expect(content).toContain('w-full px-0 py-2')
+    expect(spacing).not.toMatch(/\.git-tab-content\s*\{[^}]*padding(?:-[a-z]+)?\s*:/s)
   })
 })

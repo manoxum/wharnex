@@ -16,6 +16,8 @@ describe('project-wide push button', () => {
     const button = await screen.findByRole('button', { name: 'Publicar projeto' })
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
     const toolbar = screen.getByRole('region', { name: 'Publicação completa do projeto' })
+    expect(toolbar.className).toContain('w-full')
+    expect(toolbar.parentElement?.className).toContain('pb-2')
     expect(within(toolbar).getByText(/2 submódulo\(s\) e superprojeto/)).toBeTruthy()
     for (const tab of ['Histórico', 'Contribuidores', 'Branches', 'Definições', 'Alterações'] as const) {
       openTab(tab)

@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { type ComponentProps, useMemo, useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import type { ChatAgentTask, ChatArtifactSelection, OrchestratorOverview as OverviewData, OrchestratorProposal, OrchestratorProposalResult, OrchestratorTask, Session } from '../../../types'
@@ -91,7 +92,7 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
   async function reviseDraftPlan() {
     if (!draftPlan || busy) return
     const guidance = await promptDialog({
-      title: 'Pedir alteração do plano',
+      title: uiText("Pedir alteração do plano"),
       message: 'Descreva o que deve mudar. O Wharnex enviará o plano proposto atual como anexo para o Planner gerar uma nova versão.',
       inputLabel: 'Alteração pretendida',
       placeholder: 'Ex.: dividir a tarefa de migração e acrescentar uma etapa de rollback',
@@ -117,9 +118,7 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
     <OrchestratorTaskAttention tasks={overview.tasks} onSelectTask={onSelectTask}/>
     <section className="orchestrator-goal-stage">
       <div className="orchestrator-goal-copy">
-        <span className="mb-[9px] block text-sm font-extrabold uppercase tracking-[0.09em] text-[var(--theme-accent)]">Planeie o resultado, não os cliques</span>
-        <h1 className="m-0 text-2xl font-bold leading-[1.08] tracking-[-0.035em] text-[var(--theme-text)]">O que pretende realizar neste projeto?</h1>
-        <p className="mx-auto mt-[13px] w-full max-w-[620px] text-base leading-[1.65] text-[var(--theme-text-muted)]">Descreva o objetivo. O Planner transforma-o em tarefas, dependências e critérios de conclusão antes de qualquer execução.</p>
+        <h1 className="m-0 text-2xl font-bold leading-[1.08] tracking-[-0.035em] text-[var(--theme-text)]">{uiText("Novo plano")}</h1>
       </div>
       <div className="orchestrator-composer-shell">
         <ChatPanel
@@ -133,8 +132,8 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
           taskInFlight={false}
           preparedAttachmentCount={undefined}
           failedPromptDelivery={undefined}
-          composerPlaceholder="Ex.: migrar o módulo de autenticação para Go, preservar compatibilidade e validar o cutover…"
-          composerSendLabel="Gerar plano"
+          composerPlaceholder={uiText("Descreva o objetivo…")}
+          composerSendLabel={uiText("Gerar plano")}
           composerHint="Enter gera o plano · Shift+Enter cria linha"
           onSend={propose}
         />
@@ -144,25 +143,25 @@ export function OrchestratorOverview({ session, overview, planningTasks = [], ch
     <OrchestratorPlanningQueue requests={planningRequests} tasks={planningTasks} chats={chats} plans={overview.plans} busy={busy} onGoToChat={onGoToChat} onSelect={onSelectPlanningRequest} onOpenTasks={onOpenPlanTasks} onRetry={(requestId) => { void onRun(() => api.retryOrchestratorPlanning(session.id, requestId)) }}/>
 
     {proposal?.manual_prompt && !proposal.worker_task_id && <section className="orchestrator-manual-plan">
-      <header><div><strong className="text-base">Planner manual</strong><span className="text-sm text-[var(--theme-text-muted)]">Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>
-      <details><summary className="text-sm">Ver prompt</summary><pre className="font-mono text-sm leading-[1.5]">{proposal.manual_prompt}</pre></details>
+      <header><div><strong className="text-base">Planner manual</strong><span className="text-sm text-[var(--theme-text-muted)]">{uiText("Envie este prompt ao ChatGPT e cole abaixo apenas o JSON devolvido.")}</span></div><button type="button" onClick={() => void navigator.clipboard.writeText(proposal.manual_prompt || '')}><Icon name="copy" size={14}/> Copiar prompt</button></header>
+      <details><summary className="text-sm">{uiText("Ver prompt")}</summary><pre className="font-mono text-sm leading-[1.5]">{proposal.manual_prompt}</pre></details>
       <textarea className="font-mono text-base leading-[1.55]" value={manualJSON} onChange={(event) => setManualJSON(event.target.value)} placeholder='{"protocol":"harness.orchestrator-plan/v1", ...}' rows={7}/>
-      <button className="primary text-base font-bold" type="button" disabled={busy || !manualJSON.trim()} onClick={() => void importManual()}>Importar plano estruturado</button>
+      <button className="primary text-base font-bold" type="button" disabled={busy || !manualJSON.trim()} onClick={() => void importManual()}>{uiText("Importar plano estruturado")}</button>
     </section>}
 
     {draftPlan && <section className="orchestrator-proposal-card">
       <header>
-        <div><span className="text-sm font-extrabold uppercase tracking-[0.06em] text-[var(--theme-accent)]">Plano proposto · {draftTasks.length} tarefas</span><h2 className="mb-[3px] mt-1 text-lg">{draftPlan.title}</h2><p className="m-0 text-base leading-[1.5] text-[var(--theme-text-muted)]">{draftPlan.objective}</p></div>
+        <div><span className="text-sm font-extrabold uppercase tracking-[0.06em] text-[var(--theme-accent)]">{uiText("Plano proposto ·")}{' '}{draftTasks.length} {' '}{uiText("tarefas")}</span><h2 className="mb-[3px] mt-1 text-lg">{draftPlan.title}</h2><p className="m-0 text-base leading-[1.5] text-[var(--theme-text-muted)]">{draftPlan.objective}</p></div>
         <div className="orchestrator-proposal-actions">
-          <button type="button" className="secondary danger text-base font-bold" disabled={busy} onClick={() => void rejectDraftPlan()}><Icon name="close" size={14}/> Recusar</button>
-          <button type="button" className="secondary text-base font-bold" disabled={busy} onClick={() => void reviseDraftPlan()}><Icon name="refresh" size={14}/> Pedir alteração</button>
-          <button type="button" className="text-base font-bold" disabled={busy} onClick={() => void onRun(() => api.approveOrchestratorPlan(session.id, draftPlan.id), () => onProposal(undefined))}><Icon name="check" size={15}/> Aprovar e enviar ao fluxo</button>
+          <button type="button" className="secondary danger text-base font-bold" disabled={busy} onClick={() => void rejectDraftPlan()}><Icon name="close" size={14}/> {' '}{uiText("Recusar")}</button>
+          <button type="button" className="secondary text-base font-bold" disabled={busy} onClick={() => void reviseDraftPlan()}><Icon name="refresh" size={14}/> {' '}{uiText("Pedir alteração")}</button>
+          <button type="button" className="text-base font-bold" disabled={busy} onClick={() => void onRun(() => api.approveOrchestratorPlan(session.id, draftPlan.id), () => onProposal(undefined))}><Icon name="check" size={15}/> {' '}{uiText("Aprovar e enviar ao fluxo")}</button>
         </div>
       </header>
       <div className="orchestrator-proposal-flow">
         {draftTasks.map((task, index) => <button key={task.id} type="button" onClick={() => onSelectTask(task)}>
           <span className="step font-mono text-sm leading-none text-[var(--theme-text-soft)]">{String(index + 1).padStart(2, '0')}</span>
-          <span><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-muted)]">{task.depends_on?.length ? `${task.depends_on.length} dependência(s)` : 'Sem dependências'} · {task.priority}</small></span>
+          <span><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-muted)]">{task.depends_on?.length ? `${task.depends_on.length} dependência(s)` : uiText("Sem dependências")} · {task.priority}</small></span>
           <Icon name="chevron-right" size={14}/>
         </button>)}
       </div>

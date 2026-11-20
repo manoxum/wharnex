@@ -1,7 +1,7 @@
 import { request } from '../../transport/http/api'
 
 const UI_PREFERENCES_KEY = 'kernl.ui.preferences.v1'
-const UI_FONT_BASELINE = 1.32
+const UI_FONT_BASELINE = 1.2
 export const UI_PREFERENCES_EVENT = 'wharness:ui-preferences'
 
 export type UIFontChoice = 'elegant' | 'system' | 'humanist'

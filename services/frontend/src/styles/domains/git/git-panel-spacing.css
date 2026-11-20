@@ -1,9 +1,6 @@
 /* Compact spacing pass for the Git project drawer.
    This remains separate from the legacy oversized git-panel sheet. */
-.git-tab-content {
-  padding: 14px;
-  gap: 12px;
-}
+.git-tab-content { gap: 12px; }
 
 .git-change-surface,
 .git-section {
@@ -29,6 +26,6 @@
 }
 
 @container semantic-panel (max-width: 430px) {
-  .git-tab-content { padding: 11px; gap: 10px; }
+  .git-tab-content { gap: 10px; }
   .git-change-surface, .git-section { padding: 12px; }
 }

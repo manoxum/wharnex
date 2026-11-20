@@ -1,3 +1,4 @@
+import { translate as uiText, formatMessage } from '../../../../lib/workspace/localization'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { WorkspaceMode } from '../../../../types'
 import type { TerminalRuntimeRecord } from '../../../terminal/runtime/terminalRuntime'
@@ -11,6 +12,7 @@ import { SignalCore } from '../../../presentation/chrome/SignalCore'
 import { ProjectGitBadge } from '../../../git/history/ProjectGitBadge'
 import { DesktopCloseDialogHost } from '../../window/DesktopCloseDialogHost'
 import { TunnelOverviewModal } from '../../../project/settings/TunnelOverviewModal'
+import { WorkspaceSwitcher } from './projects'
 import { QuickSwitcher } from '../QuickSwitcher'
 import { CommandLauncher } from '../commands'
 
@@ -117,50 +119,46 @@ export function ShellChrome({ projects, recent = [], activeProject, composerTypi
       onUnbind={(path) => { setProjectWindowOpen(false); onUnbind(path) }}/>
 
     {activeProject && <ProjectGitBadge sessionID={activeSessionID} busy={busy} onSync={onGitSync} />}
-    {activeProject && <div className="shell-mode-switch" role="group" aria-label="Modo do workspace"><button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={14}/></button><button className={mode === 'agent' ? 'active' : ''} aria-label="Agent" title="Agent" onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={14}/></button><button className={mode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" title="Orchestrator" onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={14}/></button></div>}
-    {projects.length > 1 && <span className="multi-project-context" title="O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto."><Icon name="bridge" size={12}/>{projects.length} projetos no contexto</span>}
+    {activeProject && <div className="shell-mode-switch" role="group" aria-label={uiText("Modo do workspace")}><button className={mode === 'editor' ? 'active' : ''} aria-label="Editor" title="Editor" onClick={() => { announceHeaderPopover('workspace-action'); onMode('editor') }}><Icon name="code" size={14}/></button><button className={mode === 'agent' ? 'active' : ''} aria-label="Agent" title="Agent" onClick={() => { announceHeaderPopover('workspace-action'); onMode('agent') }}><Icon name="agent" size={14}/></button><button className={mode === 'orchestrator' ? 'active' : ''} aria-label="Orchestrator" title="Orchestrator" onClick={() => { announceHeaderPopover('workspace-action'); onMode('orchestrator') }}><Icon name="plan" size={14}/></button></div>}
+    {projects.length > 1 && <span className="multi-project-context" title={uiText("O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto.")}><Icon name="bridge" size={12}/>{formatMessage('{count} projetos no contexto', { count: projects.length })}</span>}
     <div className="multi-project-actions">
       {activeProject && <CommandLauncher onOpen={onCommands}/>}
-      <button type="button" onClick={() => { announceHeaderPopover('tunnels'); setTunnelsOpen(true) }} aria-label="Túneis ativos" title="Túneis ativos"><Icon name="network" size={14}/></button>
+      <button type="button" onClick={() => { announceHeaderPopover('tunnels'); setTunnelsOpen(true) }} aria-label={uiText("Túneis ativos")} title={uiText("Túneis ativos")}><Icon name="network" size={14}/></button>
       <QuickSwitcher compact />
       <div ref={projectActionsRef} className="project-actions-menu">
-        <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => { if (!projectActionsOpen) announceHeaderPopover('project-actions'); setProjectActionsOpen((current) => !current) }} aria-label="Ações de projeto" aria-expanded={projectActionsOpen} title="Ações de projeto"><Icon name="plus" size={15}/></button>
+        <button type="button" className="project-actions-trigger" disabled={busy} onClick={() => { if (!projectActionsOpen) announceHeaderPopover('project-actions'); setProjectActionsOpen((current) => !current) }} aria-label={uiText("Ações de projeto")} aria-expanded={projectActionsOpen} title={uiText("Ações de projeto")}><Icon name="plus" size={15}/></button>
         {projectActionsOpen && <div className="project-actions-popover project-actions-hub" role="menu">
-          <div className="project-actions-hub-heading"><span><strong>Projetos recentes</strong><small>Abrir, vincular ou remover desta lista.</small></span><b>{recent.length}</b></div>
+          <div className="project-actions-hub-heading"><span><strong>{uiText("Projetos recentes")}</strong><small>{uiText("Abrir, vincular ou remover desta lista.")}</small></span><b>{recent.length}</b></div>
           <div className="project-actions-recent-list">
             {recent.length ? recent.map((projectPath) => <div key={projectPath} className="project-actions-recent-row" style={projectAccentStyle(projectPath)}>
-              <button type="button" className="project-actions-recent-open" disabled={busy} onClick={() => openRecentProject(projectPath)} title="Abrir projeto" aria-label={`Abrir projeto ${projectName(projectPath)} pela lista`}>
+              <button type="button" className="project-actions-recent-open" disabled={busy} onClick={() => openRecentProject(projectPath)} title={uiText("Abrir projeto")} aria-label={formatMessage("Abrir projeto {name} pela lista", { name: projectName(projectPath) })}>
                 <span className="project-actions-recent-mark"><Icon name="workspace" size={13}/></span>
                 <span className="project-actions-recent-copy"><strong>{projectName(projectPath)}</strong><small>{projectPath}</small></span>
               </button>
               <div className="project-actions-recent-buttons">
-                <button type="button" disabled={busy} onClick={() => onForgetProject?.(projectPath)} title="Remover dos recentes" aria-label={`Remover ${projectName(projectPath)} dos recentes`}><Icon name="close" size={12}/></button>
-                <button type="button" disabled={busy || projects.includes(projectPath)} onClick={() => { setProjectActionsOpen(false); onLinkProject?.(projectPath) }} title="Vincular nesta janela" aria-label={`Vincular ${projectName(projectPath)}`}><Icon name="link" size={12}/></button>
-                <button type="button" disabled={busy} onClick={() => openRecentProject(projectPath)} title="Abrir projeto" aria-label={`Abrir ${projectName(projectPath)}`}><Icon name="external" size={12}/></button>
+                <button type="button" disabled={busy} onClick={() => onForgetProject?.(projectPath)} title={uiText("Remover dos recentes")} aria-label={formatMessage("Remover {name} dos recentes", { name: projectName(projectPath) })}><Icon name="close" size={12}/></button>
+                <button type="button" disabled={busy || projects.includes(projectPath)} onClick={() => { setProjectActionsOpen(false); onLinkProject?.(projectPath) }} title={uiText("Vincular nesta janela")} aria-label={formatMessage("Vincular {name}", { name: projectName(projectPath) })}><Icon name="link" size={12}/></button>
+                <button type="button" disabled={busy} onClick={() => openRecentProject(projectPath)} title={uiText("Abrir projeto")} aria-label={formatMessage("Abrir {name}", { name: projectName(projectPath) })}><Icon name="external" size={12}/></button>
               </div>
-            </div>) : <div className="project-actions-empty"><Icon name="history" size={15}/><span>Nenhum projeto recente.</span></div>}
+            </div>) : <div className="project-actions-empty"><Icon name="history" size={15}/><span>{uiText("Nenhum projeto recente.")}</span></div>}
           </div>
           <div className="project-actions-hub-footer">
-            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="plus" size={15}/><span><strong>Nova janela</strong><small>Início Wharnex</small></span></button>
-            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBrowseOpen?.() }}><Icon name="external" size={15}/><span><strong>Abrir</strong><small>Noutra janela</small></span></button>
-            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBrowseLink?.() }}><Icon name="link" size={15}/><span><strong>Vincular</strong><small>Nesta janela</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onNewWindow() }}><Icon name="plus" size={15}/><span><strong>{uiText("Nova janela")}</strong><small>{uiText("Início Wharnex")}</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBrowseOpen?.() }}><Icon name="external" size={15}/><span><strong>{uiText("Abrir")}</strong><small>{uiText("Noutra janela")}</small></span></button>
+            <button type="button" role="menuitem" onClick={() => { setProjectActionsOpen(false); onBrowseLink?.() }}><Icon name="link" size={15}/><span><strong>{uiText("Vincular")}</strong><small>{uiText("Nesta janela")}</small></span></button>
           </div>
         </div>}
       </div>
-      {activeProject && <button type="button" data-attention-trigger="true" className={`workspace-attention-button${activeAttention?.total ? ' has-alerts' : ''}${activeAttention?.urgent ? ' urgent' : ''}`} onClick={() => { announceHeaderPopover('attention'); onAttention?.() }} aria-label={`Centro de notificações, ${activeAttention?.total || 0} alerta(s), ${activeAttention?.urgent || 0} urgente(s), ${activeAttention?.actionable || 0} com ação`} title="Notificações · ver alertas recentes"><Icon name="bell" size={16}/>{Boolean(activeAttention?.total) && <b className="workspace-attention-count" aria-hidden="true">{activeAttention!.total > 99 ? '99+' : activeAttention!.total}</b>}</button>}
-      {activeProject && <button type="button" disabled={busy} onClick={() => { announceHeaderPopover('settings'); onSettings() }} aria-label="Configuração do projeto" title="Configuração do projeto"><Icon name="settings" size={14}/></button>}
+      {activeProject && <button type="button" data-attention-trigger="true" className={`workspace-attention-button${activeAttention?.total ? ' has-alerts' : ''}${activeAttention?.urgent ? ' urgent' : ''}`} onClick={() => { announceHeaderPopover('attention'); onAttention?.() }} aria-label={formatMessage("Centro de notificações, {total} alerta(s), {urgent} urgente(s), {actionable} com ação", { total: activeAttention?.total || 0, urgent: activeAttention?.urgent || 0, actionable: activeAttention?.actionable || 0 })} title={uiText("Notificações · ver alertas recentes")}><Icon name="bell" size={16}/>{Boolean(activeAttention?.total) && <b className="workspace-attention-count" aria-hidden="true">{activeAttention!.total > 99 ? '99+' : activeAttention!.total}</b>}</button>}
+      {activeProject && <button type="button" disabled={busy} onClick={() => { announceHeaderPopover('settings'); onSettings() }} aria-label={uiText("Configuração do projeto")} title={uiText("Configuração do projeto")}><Icon name="settings" size={14}/></button>}
     </div>
-    {!useNativeWindowControls && <div className="window-chrome-controls" role="group" aria-label="Controlos da janela">
-      {(activeRuntime?.selfEvolution || activeRuntime?.instanceId) && <span className="window-runtime-badge self-evolution-badge"><Icon name="refresh" size={12}/>{activeRuntime.selfEvolution ? ' WHX · AUTO-EVOLUÇÃO' : ` WHX · EVOLUÇÃO DA INSTÂNCIA ${activeRuntime.instanceId}`}</span>}
-      <button type="button" className="window-chrome-button minimize" onClick={() => void desktopBridge()?.windows.minimize()} aria-label="Minimizar janela" title="Minimizar"><span aria-hidden="true"/></button>
-      <button type="button" className="window-chrome-button maximize" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label="Maximizar ou restaurar janela" title="Maximizar / restaurar"><span aria-hidden="true"/></button>
-      <button type="button" className="window-chrome-button close" onClick={() => void desktopBridge()?.windows.close()} aria-label="Fechar janela" title="Fechar"><span aria-hidden="true"/></button>
+    {!useNativeWindowControls && <div className="window-chrome-controls" role="group" aria-label={uiText("Controlos da janela")}>
+      {(activeRuntime?.selfEvolution || activeRuntime?.instanceId) && <span className="window-runtime-badge self-evolution-badge"><Icon name="refresh" size={12}/>{activeRuntime.selfEvolution ? uiText('WHX · AUTO-EVOLUÇÃO') : formatMessage("WHX · EVOLUÇÃO DA INSTÂNCIA {id}", { id: activeRuntime.instanceId || '' })}</span>}
+      <button type="button" className="window-chrome-button minimize" onClick={() => void desktopBridge()?.windows.minimize()} aria-label={uiText("Minimizar janela")} title={uiText("Minimizar")}><span aria-hidden="true"/></button>
+      <button type="button" className="window-chrome-button maximize" onClick={() => void desktopBridge()?.windows.toggleMaximize()} aria-label={uiText("Maximizar ou restaurar janela")} title={uiText("Maximizar / restaurar")}><span aria-hidden="true"/></button>
+      <button type="button" className="window-chrome-button close" onClick={() => void desktopBridge()?.windows.close()} aria-label={uiText("Fechar janela")} title={uiText("Fechar")}><span aria-hidden="true"/></button>
     </div>}
-    {projectWindowOpen && projectWindowAnchor && <div ref={projectWindowRef} className="project-window-popover" style={{ left: projectWindowAnchor.left, top: projectWindowAnchor.top, minWidth: Math.max(270, projectWindowAnchor.width + 90) }}>
-      <div className="project-window-popover-heading"><span>Projetos abertos</span><small>Troque ou desvincule nesta janela; projetos de outras janelas podem ser trazidos para a frente.</small></div>
-      <div className="project-window-group"><b>Nesta janela</b>{projects.map((projectPath) => <div key={projectPath} className={`project-window-local-row ${projectPath === activeProject ? 'current' : ''}`} style={projectAccentStyle(projectPath)}><button type="button" className="project-window-project" onClick={() => { setProjectWindowOpen(false); onActivate(projectPath) }}><span className="project-window-accent"/><span><strong>{projectName(projectPath)}</strong><small>{projectPath === activeProject ? 'Projeto atual' : 'Vinculado nesta janela'}</small></span>{projectPath === activeProject && <Icon name="check" size={13}/>}</button><button type="button" className="project-window-unbind" disabled={busy} onClick={() => { setProjectWindowOpen(false); onUnbind(projectPath) }} aria-label={`Desvincular ${projectName(projectPath)} pelo menu de projetos`} title="Desvincular desta janela"><Icon name="close" size={12}/></button></div>)}</div>
-      <div className="project-window-group"><b>Outras janelas</b>{otherWindows.length ? otherWindows.map((item) => <button type="button" key={`${item.windowId}:${item.projectPath}`} style={projectAccentStyle(item.projectPath)} onClick={() => void focusOpenProject(item)}><span className="project-window-accent"/><span><strong>{projectName(item.projectPath)}</strong><small>{item.focused ? 'Janela atualmente em foco' : 'Trazer janela para a frente'}</small></span><Icon name="external" size={12}/></button>) : <p>Nenhum outro projeto aberto noutra janela.</p>}</div>
-    </div>}
+    {projectWindowOpen && projectWindowAnchor && <WorkspaceSwitcher projects={projects} recent={recent} activeProject={activeProject} otherWindows={otherWindows} busy={busy} anchor={projectWindowAnchor} panelRef={projectWindowRef} onActivate={onActivate} onUnbind={onUnbind} onFocus={(item) => void focusOpenProject(item)} onOpen={onOpenProject} onForget={onForgetProject} onBrowse={onBrowseOpen} onClose={() => { setProjectWindowOpen(false); activeProjectButtonRef.current?.focus() }}/>}
     {tunnelsOpen && <TunnelOverviewModal onClose={() => setTunnelsOpen(false)}/>}
   </header>
 }

@@ -2,9 +2,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Bootstrap } from './Bootstrap'
 import { findComposerEditor } from '../../../lib/chat/composer/composerRichText'
+import { setLocalePreference } from '../../../lib/workspace/localization'
 
 describe('Bootstrap project home', () => {
-  beforeEach(() => { localStorage.clear(); delete window.wharnessDesktop })
+  beforeEach(() => { localStorage.clear(); setLocalePreference('pt'); delete window.wharnessDesktop })
 
   it('starts a new project from a large briefing without the legacy hero panel', async () => {
     const onBootstrap = vi.fn().mockResolvedValue(undefined)

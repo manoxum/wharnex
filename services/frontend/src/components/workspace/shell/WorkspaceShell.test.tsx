@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../../lib/transport/http/api'
 import { loadBoundProjects, saveBoundActiveProject, saveBoundProjects } from '../../../lib/project/context/projectBindings'
 import { rememberRecent } from '../../../lib/chat/history/workspaceMemory'
+import { setLocalePreference } from '../../../lib/workspace/localization'
 import { ShellChrome, WorkspaceShell } from './WorkspaceShell'
 describe('WorkspaceShell project actions', () => {
-beforeEach(() => { localStorage.clear(); delete window.wharnessDesktop })
+beforeEach(() => { localStorage.clear(); setLocalePreference('pt'); delete window.wharnessDesktop })
 afterEach(() => { vi.restoreAllMocks(); delete window.wharnessDesktop })
 it('closes the project actions menu with Escape or a click outside it', async () => {
     vi.spyOn(api, 'config').mockResolvedValue({ planner: 'openai', sandbox: 'docker', model: 'test', api_configured: true, chatgpt_web_embed: false })

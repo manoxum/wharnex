@@ -1,0 +1,7 @@
+/* Theme-derived workbench chrome: rails, tool panes and editor remain distinct. */
+:root,
+:root[data-theme] {
+  --theme-rail: color-mix(in srgb, var(--theme-bg) 86%, var(--theme-text));
+  --theme-side: color-mix(in srgb, var(--theme-bg) 95%, var(--theme-text));
+  --theme-tool-selected: color-mix(in srgb, var(--theme-rail) 68%, var(--theme-accent));
+}

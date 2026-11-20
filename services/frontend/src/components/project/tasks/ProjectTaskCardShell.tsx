@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { useState, type ReactNode } from 'react'
 import { Icon } from '../../presentation/chrome/Icon'
 
@@ -80,7 +81,7 @@ export function ProjectTaskCardShell({
       <code className="max-w-full min-w-0 break-all whitespace-normal rounded-md bg-whx-muted px-1.5 py-1 font-mono font-semibold leading-relaxed text-whx-accent">{rootRequestId}</code>
       {metadata}
     </div>
-    {onGoToChat ? <div className="flex items-center"><button type="button" className="inline-flex min-h-7 items-center gap-1.5 rounded-lg border border-whx-border-soft bg-whx-bg px-2.5 text-xs font-bold text-whx-soft transition-colors hover:border-whx-border hover:bg-whx-hover hover:text-whx-text" onClick={onGoToChat}><Icon name="bridge" size={12}/> Ver chat</button></div> : null}
-    <details className="project-task-details" onToggle={(event) => setOpened(event.currentTarget.open)}><summary><span>Detalhes, planos, execuções, logs e metadados</span></summary>{opened ? renderDetails() : null}</details>
+    {onGoToChat ? <div className="flex items-center"><button type="button" className="inline-flex min-h-7 items-center gap-1.5 rounded-lg border border-whx-border-soft bg-whx-bg px-2.5 text-xs font-bold text-whx-soft transition-colors hover:border-whx-border hover:bg-whx-hover hover:text-whx-text" onClick={onGoToChat}><Icon name="bridge" size={12}/> {' '}{uiText("Ver chat")}</button></div> : null}
+    <details className="project-task-details" onToggle={(event) => setOpened(event.currentTarget.open)}><summary><span>{uiText("Detalhes, planos, execuções, logs e metadados")}</span></summary>{opened ? renderDetails() : null}</details>
   </article>
 }

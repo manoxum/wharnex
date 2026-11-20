@@ -72,10 +72,8 @@
    horizontal scrolling. The branch is metadata, not a competing headline. */
 
 .git-tab-content {
-  padding: 0;
   gap: 0;
   overflow-x: hidden;
-  overflow-y: auto;
   background: var(--theme-bg);
   scrollbar-gutter: auto;
 }

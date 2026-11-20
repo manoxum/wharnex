@@ -1,3 +1,4 @@
+import navigationSource from '../../../../components/workspace/shell/navigation/WorkspaceNavigation.tsx?raw'
 import { describe, expect, it } from 'vitest'
 import { css } from '../../../cascade/styleRules'
 import { readFileSync } from 'node:fs'
@@ -9,11 +10,12 @@ describe('quiet premium workbench design system', () => {
     expect(css).toContain('--control-md: 32px')
     expect(css).toContain('--radius-control: 4px')
     expect(css).toContain('/* v1.2.49 — quiet premium workbench grammar.')
-    expect(css).toContain('.workspace-main-row > .agent-activity-bar button.active:not(:disabled)')
+    expect(navigationSource).toContain('active !bg-whx-tool-selected !text-whx-text')
+    expect(navigationSource).toContain('border-0 bg-whx-rail')
     expect(css).toContain('background: transparent')
     expect(css).toContain('.terminal-workspace:focus-within')
     expect(css).toContain('border-top-color: color-mix(in srgb, var(--theme-accent) 45%, var(--theme-border))')
-    expect(settingsPageSource).toContain('border-t border-whx-border-soft pt-5')
+    expect(settingsPageSource).toContain('border-t border-whx-border-soft pt-4')
     expect(css).toContain('.agent-runtime-list > button.active:not(:disabled)')
     expect(css).toContain('box-shadow: inset 2px 0 var(--agent-state)')
   })

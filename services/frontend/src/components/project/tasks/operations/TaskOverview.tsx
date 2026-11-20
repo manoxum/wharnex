@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../../lib/workspace/localization'
 import { Icon } from '../../../presentation/chrome/Icon'
 import { IconButton, Input, PanelHeader, Select } from '../../../presentation/workbench'
 
@@ -6,13 +7,13 @@ export function TaskOverview({ counts, runningCount, attentionCount, query, sour
   onQuery: (query: string) => void; onSource: (source: string) => void; onClose: () => void
 }) {
   return <>
-    <PanelHeader title="Tarefas do projeto" description="Trabalho em curso, atenção e histórico." icon="list" actions={<IconButton label="Fechar tarefas" icon="close" onClick={onClose}/>}/>
-    <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-b border-whx-border-soft px-4 py-3" aria-label="Resumo operacional">
-      {[{ label: 'Ativas', value: counts.queue, icon: 'list' as const }, { label: 'Em execução', value: runningCount, icon: 'play' as const }, { label: 'Atenção', value: attentionCount, icon: 'alert' as const }, { label: 'Concluídas', value: counts.completed, icon: 'check' as const }].map((metric) => <div key={metric.label} className={`flex items-center gap-2 text-whx-caption ${metric.label === 'Atenção' && attentionCount > 0 ? 'text-whx-danger' : 'text-whx-faint'}`}><Icon name={metric.icon} size={13}/><span className="flex-1">{metric.label}</span><b className="font-mono text-whx-label">{metric.value}</b></div>)}
+    <PanelHeader title={uiText("Tarefas do projeto")} description={uiText("Trabalho em curso, atenção e histórico.")} icon="list" actions={<IconButton label={uiText("Fechar tarefas")} icon="close" onClick={onClose}/>}/>
+    <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-b border-whx-border-soft px-4 py-3" aria-label={uiText("Resumo operacional")}>
+      {[{ label: uiText("Ativas"), value: counts.queue, icon: 'list' as const }, { label: uiText("Em execução"), value: runningCount, icon: 'play' as const }, { label: uiText("Atenção"), value: attentionCount, icon: 'alert' as const }, { label: uiText("Concluídas"), value: counts.completed, icon: 'check' as const }].map((metric) => <div key={metric.label} className={`flex items-center gap-2 text-whx-caption ${metric.icon === 'alert' && attentionCount > 0 ? 'text-whx-danger' : 'text-whx-faint'}`}><Icon name={metric.icon} size={13}/><span className="flex-1">{metric.label}</span><b className="font-mono text-whx-label">{metric.value}</b></div>)}
     </div>
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-2 px-3 py-3" role="group" aria-label="Pesquisa e origem das tarefas">
-      <Input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Pesquisar tarefas…" aria-label="Pesquisar tarefas"/>
-      <Select value={source} onChange={(event) => onSource(event.target.value)} aria-label="Filtrar tarefas por origem"><option value="all">Todas as origens</option><option value="chat">Chats</option><option value="worker">Workers</option><option value="orchestrator">Orquestração</option><option value="translation">Traduções</option><option value="release">Releases</option><option value="todo">TODO</option><option value="system">Sistema</option></Select>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-2 px-3 py-3" role="group" aria-label={uiText("Pesquisa e origem das tarefas")}>
+      <Input value={query} onChange={(event) => onQuery(event.target.value)} placeholder={uiText("Pesquisar tarefas…")} aria-label={uiText("Pesquisar tarefas")}/>
+      <Select value={source} onChange={(event) => onSource(event.target.value)} aria-label={uiText("Filtrar tarefas por origem")}><option value="all">{uiText("Todas as origens")}</option><option value="chat">Chats</option><option value="worker">Workers</option><option value="orchestrator">{uiText("Orquestração")}</option><option value="translation">{uiText("Traduções")}</option><option value="release">Releases</option><option value="todo">TODO</option><option value="system">{uiText("Sistema")}</option></Select>
     </div>
   </>
 }

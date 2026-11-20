@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type { DirectiveSuggestion } from '../../../lib/chat/composer/composerDirectives'
@@ -105,8 +106,8 @@ export function ComposerDirectiveOptionRows({ suggestions, selectedIndex, onSele
   onLoadMore?: () => void
 }) {
   return <>
-    {suggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === selectedIndex} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(suggestion)}><Icon name={suggestion.sourceIcon || (suggestion.continues ? 'workspace' : 'file')} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">ainda não anexado</small>}{index === selectedIndex && <kbd>Enter</kbd>}</button>)}
-    {loading && <p className="composer-attachment-empty">A procurar tarefas…</p>}
-    {!loading && hasMore && <button type="button" className="text-button" onMouseDown={(event) => event.preventDefault()} onClick={onLoadMore}>Carregar mais</button>}
+    {suggestions.map((suggestion, index) => <button type="button" role="option" aria-selected={index === selectedIndex} key={`${suggestion.value}:${suggestion.label}`} onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(suggestion)}><Icon name={suggestion.sourceIcon || (suggestion.continues ? 'workspace' : 'file')} size={12}/><span>{suggestion.label}</span>{suggestion.detail && <em>{suggestion.detail}</em>}{suggestion.continues && suggestion.attached === false && <small className="unattached">{uiText("ainda não anexado")}</small>}{index === selectedIndex && <kbd>Enter</kbd>}</button>)}
+    {loading && <p className="composer-attachment-empty">{uiText("A procurar tarefas…")}</p>}
+    {!loading && hasMore && <button type="button" className="text-button" onMouseDown={(event) => event.preventDefault()} onClick={onLoadMore}>{uiText("Carregar mais")}</button>}
   </>
 }

@@ -53,10 +53,7 @@
 :root[data-theme='light'] .agent-attention-popover > footer button { border-color: #cbd2c6; background: #ffffff; color: #4b5546; }
 :root[data-theme='light'] .agent-surface-tabs button.attention-pulse::after { box-shadow: 0 0 0 2px var(--theme-surface); }
 :root[data-theme='light'] .agent-chat-switcher { border-color: var(--theme-border); background: var(--theme-surface); }
-:root[data-theme='light'] .agent-activity-bar { border-color: var(--theme-border); background: #e5e9e1; }
-:root[data-theme='light'] .agent-activity-bar button { color: #778173; }
-:root[data-theme='light'] .agent-activity-bar button:hover { background: #d9ded5; color: #3d4639; }
-:root[data-theme='light'] .agent-activity-bar button.active { background: #f7f8f4; color: #252c22; }
+
 :root[data-theme='light'] .agent-drawer { border-color: var(--theme-border); background: #f4f6f1; color: var(--theme-text-soft); box-shadow: 12px 0 30px rgba(29, 35, 25, .12); }
 :root[data-theme='light'] .agent-drawer-heading { border-color: var(--theme-border); background: #ecefe8; }
 :root[data-theme='light'] .agent-drawer-heading strong,

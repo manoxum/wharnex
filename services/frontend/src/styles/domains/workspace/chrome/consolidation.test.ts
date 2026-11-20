@@ -1,3 +1,4 @@
+import dialogStyleSource from '../../../../lib/desktop/bridge/dialogs/dialogStyle.ts?raw'
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -39,7 +40,7 @@ describe('final workbench visual consolidation', () => {
     expect(topbarSource).toContain('!border-whx-border !bg-whx-surface')
     expect(lastRule('.mode-switch')).toContain('background: transparent')
     expect(lastRule('.error-toast')).toContain('border-left: 2px solid var(--danger)')
-    expect(lastRule('.app-dialog-card')).toContain('border-radius: 8px')
+    expect(dialogStyleSource).toContain('!rounded-lg')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')
     expect(lastRule('.topbar-indicator')).toContain('border-color: transparent')
   })

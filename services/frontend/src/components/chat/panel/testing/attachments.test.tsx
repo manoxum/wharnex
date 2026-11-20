@@ -31,7 +31,7 @@ it('keeps a readable composer floor across chat restores and focuses from its em
     const editor = ref.current?.getComposerEditor()
     if (!editor) throw new Error('composer editor not mounted')
     const focus = vi.spyOn(editor, 'focus')
-    expect(composer.style.height).toBe('180px')
+    expect(composer.style.height).toBe('156px')
     fireEvent.pointerDown(editorShell, { button: 0, pointerId: 1 })
     expect(focus).toHaveBeenCalledTimes(1)
     clearComposerDraft(session.project_path, 'short-composer')
@@ -64,7 +64,7 @@ it('selects files and submits them with the message', async () => {
     fireEvent.change(input, { target: { files: [file] } })
     typeInComposer(ref, 'implementar', 'implementar'.length)
     fireEvent.submit(view.container.querySelector('form')!)
-    expect(onSend).toHaveBeenCalledWith('implementar', [file], [], { context: false, prompt: true, result: false, error: false }, 'direct')
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('implementar', [file], [], { context: false, prompt: true, result: false, error: false }, 'direct'))
   })
 
 it('restores unsent file attachments after leaving and returning to the same chat', () => {

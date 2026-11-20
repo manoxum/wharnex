@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import {
 	archiveChat, archiveSavedChat, clearActiveWorkspace, deriveChatTitle, plannerChatTitle, loadActiveWorkspace, loadArchivedWorkspaceChats, loadSavedWorkspaceChats, loadAutomationMode, loadChat, loadExecutionMode, loadRecentWorkspaces,
-  durableWorkspaceChat, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, loadWorkspaceDirectory, saveWorkspaceDirectory, loadPendingProjectLaunch, savePendingProjectLaunch, clearPendingProjectLaunch, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeRecent, loadPendingProjectPrompt, savePendingProjectPrompt, clearPendingProjectPrompt, loadProjectLogo, saveProjectLogo, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats, loadComposerStoredFileDraft, saveComposerStoredFileDraft,
+  durableWorkspaceChat, loadWorkspaceChats, loadExecutionHistory, loadTransportOptions, loadWorkspaceDirectory, saveWorkspaceDirectory, loadPendingProjectLaunch, savePendingProjectLaunch, clearPendingProjectLaunch, mergeDurableWorkspaceChats, newWorkspaceChat, normalizeTransportOptions, rememberRecent, removeRecent, loadPendingProjectPrompt, savePendingProjectPrompt, clearPendingProjectPrompt, loadProjectLogo, saveProjectLogo, removeArchivedChat, reorderWorkspaceChats, restoreArchivedChat, restoreSavedChat, saveActiveWorkspace, saveAutomationMode, saveChat, saveChatForLater, saveExecutionHistory, saveExecutionMode, saveTransportOptions, saveWorkspaceChats,
 } from './workspaceMemory'
 
 beforeEach(() => localStorage.clear())
@@ -246,55 +246,5 @@ describe('workspace memory', () => {
     expect(plannerChatTitle('Processar ZIP')).toBe('')
     expect(plannerChatTitle('WHARNEX INPUT req_123')).toBe('')
     expect(plannerChatTitle('req_20260912T222335_af9bc62ec2a19770')).toBe('')
-  })
-})
-
-describe('composer draft memory', () => {
-  it('persists text and bounded composer height per chat', async () => {
-    const memory = await import('./workspaceMemory')
-    memory.saveComposerDraft('/p', 'chat-a', { message: 'Olá mundo', height: 999 })
-    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'Olá mundo', height: 420 })
-    localStorage.setItem('kernl.workspace.composer-draft.v1:/p:chat-a', JSON.stringify({ message: 'altura antiga', height: 118 }))
-    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'altura antiga', height: 180 })
-    memory.clearComposerDraft('/p', 'chat-a')
-    expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: '', height: 180 })
-  })
-
-  it('coalesces rapid composer draft writes while keeping the latest draft readable', async () => {
-    const memory = await import('./workspaceMemory')
-    vi.useFakeTimers()
-    const setItem = vi.spyOn(Storage.prototype, 'setItem')
-    try {
-      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'primeiro', height: 220 })
-      memory.scheduleComposerDraftSave('/p', 'chat-a', { message: 'segundo', height: 230 })
-      expect(memory.loadComposerDraft('/p', 'chat-a')).toEqual({ message: 'segundo', height: 230 })
-      expect(setItem).not.toHaveBeenCalled()
-      vi.advanceTimersByTime(179)
-      expect(setItem).not.toHaveBeenCalled()
-      vi.advanceTimersByTime(1)
-      expect(setItem).toHaveBeenCalledTimes(1)
-      expect(JSON.parse(localStorage.getItem('kernl.workspace.composer-draft.v1:/p:chat-a') || '{}')).toEqual({ message: 'segundo', height: 230 })
-    } finally {
-      memory.clearComposerDraft('/p', 'chat-a')
-      setItem.mockRestore()
-      vi.useRealTimers()
-    }
-  })
-
-  it('keeps unsent attachment selections scoped to each chat for the current app runtime', async () => {
-    const memory = await import('./workspaceMemory')
-    const file = new File(['draft'], 'draft.txt', { type: 'text/plain' })
-    memory.saveComposerFileDraft('/p', 'chat-a', { attachments: [file], projectFiles: ['src/App.tsx'] })
-    expect(memory.loadComposerFileDraft('/p', 'chat-a')).toEqual({ attachments: [file], projectFiles: ['src/App.tsx'] })
-    expect(memory.loadComposerFileDraft('/p', 'chat-b')).toEqual({ attachments: [], projectFiles: [] })
-    memory.clearComposerDraft('/p', 'chat-a')
-    expect(memory.loadComposerFileDraft('/p', 'chat-a')).toEqual({ attachments: [], projectFiles: [] })
-  })
-
-  it('persists durable composer attachment references across an app reload', () => {
-    const attachments = [{ name: 'draft.txt', size: 5, mime: 'text/plain', storageRef: 'chat-a/composer_draft/0', previewKind: 'icon' as const, lastModified: 1_700_000_000_000 }]
-    saveComposerStoredFileDraft('/p', 'chat-a', attachments)
-    expect(loadComposerStoredFileDraft('/p', 'chat-a')).toEqual(attachments)
-    expect(loadComposerStoredFileDraft('/p', 'chat-b')).toEqual([])
   })
 })

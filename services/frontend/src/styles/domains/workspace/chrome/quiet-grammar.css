@@ -1,40 +1,9 @@
+
 /* v1.2.49 — quiet premium workbench grammar.
    The workbench should read as one desktop instrument, not a collection of
    floating cards: spacing separates structure, accent marks state, and
    universal controls stay compact. */
-.workspace-main-row > .agent-activity-bar {
-  flex-basis: 46px;
-  width: 46px;
-  padding: 6px 3px;
-  gap: 4px;
-}
-.workspace-main-row > .agent-activity-bar button {
-  width: 40px;
-  height: 38px;
-  border-radius: var(--radius-control);
-  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease;
-}
-.workspace-main-row > .agent-activity-bar button:hover {
-  background: color-mix(in srgb, var(--theme-hover) 68%, transparent);
-}
-.workspace-main-row > .agent-activity-bar button.active:not(:disabled) {
-  background: transparent;
-  color: var(--theme-text);
-  box-shadow: none;
-}
-.workspace-main-row > .agent-activity-bar button b {
-  min-width: 14px;
-  height: 14px;
-  right: 1px;
-  top: 1px;
-  border-radius: 7px;
-  font-size: 7px;
-}
-.workspace-main-row > .agent-activity-bar button::before,
-.workspace-main-row > .workspace-side-rail-right button::before {
-  top: 8px;
-  bottom: 8px;
-}
+
 .terminal-workspace:not(.terminal-workspace-hidden) {
   border-left: 0;
   border-right: 0;

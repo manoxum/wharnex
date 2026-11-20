@@ -1,10 +1,11 @@
+import { translate as uiText, formatMessage } from '../../../lib/workspace/localization'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import type { OrchestratorTask, OrchestratorTaskStatus } from '../../../types'
 
 function transitionLabel(status: OrchestratorTaskStatus) {
-  if (status === 'ARCHIVED') return 'Arquivar'
-  if (status === 'COMPLETE') return 'Concluir'
-  return `Mover para ${status}`
+  if (status === 'ARCHIVED') return uiText('Arquivar')
+  if (status === 'COMPLETE') return uiText('Concluir')
+  return formatMessage('Mover para {status}', { status })
 }
 
 export function OrchestratorTaskActions({ task, disabled = false, onOpen, onOpenChat, onTransition }: {
@@ -72,7 +73,7 @@ export function OrchestratorTaskActions({ task, disabled = false, onOpen, onOpen
     if (!onOpenChat) return
     setPending(true); setError('')
     try { await onOpenChat(); setOpen(false) }
-    catch { setError('Não foi possível abrir o novo chat.') }
+    catch { setError(uiText('Não foi possível abrir o novo chat.')) }
     finally { setPending(false) }
   }
 
@@ -83,16 +84,16 @@ export function OrchestratorTaskActions({ task, disabled = false, onOpen, onOpen
       await onTransition(status)
       setOpen(false)
     } catch {
-      setError('Não foi possível executar a ação.')
+      setError(uiText('Não foi possível executar a ação.'))
     } finally {
       setPending(false)
     }
   }
 
   return <div ref={rootRef} className="relative ml-auto shrink-0" draggable={false} onClick={stop} onKeyDown={stop} onMouseDown={stop} onPointerDown={stop} onDragStart={(event) => { event.preventDefault(); event.stopPropagation() }}>
-    <button type="button" aria-label={`Ações de ${task.title}`} aria-haspopup="menu" aria-expanded={open} disabled={disabled || pending} onClick={() => { setError(''); setOpen((value) => !value) }} onKeyDown={triggerKeyDown} className="grid size-7 place-items-center rounded-md border border-transparent text-lg leading-none text-[var(--theme-text-muted)] outline-none hover:border-[var(--theme-border)] hover:bg-[var(--theme-hover)] focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)] disabled:opacity-50"><span aria-hidden="true">⋯</span></button>
-    {open && <div role="menu" aria-label={`Ações de ${task.title}`} onKeyDown={menuKeyDown} className="absolute right-0 top-8 z-30 min-w-44 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] p-1 shadow-xl">
-      <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen() }} className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-[var(--theme-text)] outline-none hover:bg-[var(--theme-hover)] focus-visible:bg-[var(--theme-hover)]">Abrir detalhe</button>
+    <button type="button" aria-label={formatMessage('Ações de {path}', { path: task.title })} aria-haspopup="menu" aria-expanded={open} disabled={disabled || pending} onClick={() => { setError(''); setOpen((value) => !value) }} onKeyDown={triggerKeyDown} className="grid size-7 place-items-center rounded-md border border-transparent text-lg leading-none text-[var(--theme-text-muted)] outline-none hover:border-[var(--theme-border)] hover:bg-[var(--theme-hover)] focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)] disabled:opacity-50"><span aria-hidden="true">⋯</span></button>
+    {open && <div role="menu" aria-label={formatMessage('Ações de {path}', { path: task.title })} onKeyDown={menuKeyDown} className="absolute right-0 top-8 z-30 min-w-44 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] p-1 shadow-xl">
+      <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpen() }} className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-[var(--theme-text)] outline-none hover:bg-[var(--theme-hover)] focus-visible:bg-[var(--theme-hover)]">{uiText("Abrir detalhe")}</button>
       {chatAvailable && onOpenChat && <button type="button" role="menuitem" disabled={pending} onClick={() => void openChat()} className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-[var(--theme-text)] outline-none hover:bg-[var(--theme-hover)] focus-visible:bg-[var(--theme-hover)] disabled:opacity-50">Abrir chat</button>}
       {transitions.map((status) => <button key={status} type="button" role="menuitem" disabled={pending} onClick={() => void transition(status)} className="block w-full rounded-md px-2 py-1.5 text-left text-sm text-[var(--theme-text)] outline-none hover:bg-[var(--theme-hover)] focus-visible:bg-[var(--theme-hover)] disabled:opacity-50">{transitionLabel(status)}</button>)}
       {error && <p role="alert" className="m-1 text-xs text-[var(--theme-danger)]">{error}</p>}

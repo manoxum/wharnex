@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { WorkbenchTabs } from '../../presentation/tabs'
 import { useEffect, useState } from 'react'
 import { desktopBridge } from '../../../lib/desktop/bridge/desktop'
@@ -13,14 +14,14 @@ import { TASK_DETAIL_TABS, type TaskDetailTab } from './taskDetailTabs'
 export type { TaskDetailTab } from './taskDetailTabs'
 
 export function TaskDetailTabBar({ tab, onTab }: { tab: TaskDetailTab; onTab: (tab: TaskDetailTab) => void }) {
-  return <WorkbenchTabs label="Detalhe da task" value={tab} onChange={onTab} items={TASK_DETAIL_TABS}/>
+  return <WorkbenchTabs label={uiText("Detalhe da task")} value={tab} onChange={onTab} items={TASK_DETAIL_TABS}/>
 }
 
 // Each run of a task is one agentic Main Request with its own Agent Session.
 export function TaskRunSelector({ runs, run, onSelect }: { runs: OrchestratorTaskRun[]; run?: OrchestratorTaskRun; onSelect: (id: string) => void }) {
-  if (!runs.length) return <p className="orchestrator-task-empty text-sm">Esta task ainda não tem execuções.</p>
+  if (!runs.length) return <p className="orchestrator-task-empty text-sm">{uiText("Esta task ainda não tem execuções.")}</p>
   return <label className="orchestrator-run-selector text-sm">
-    <span>Execução</span>
+    <span>{uiText("Execução")}</span>
     <select className="text-sm" value={run?.id || ''} onChange={(event) => onSelect(event.target.value)}>
       {runs.map((item) => <option key={item.id} value={item.id}>#{item.attempt} · {item.status} · {formatDate(item.started_at)}</option>)}
     </select>
@@ -31,30 +32,30 @@ export function TaskRunSelector({ runs, run, onSelect }: { runs: OrchestratorTas
 // What the model said about this task: the cumulative Main Request summary
 // and its latest turn, rendered as in the agentic chat.
 export function TaskThinking({ agent, loading }: { agent?: Session; loading: boolean }) {
-  if (loading && !agent) return <p className="orchestrator-task-empty text-sm" role="status">A carregar o pensamento da IA…</p>
+  if (loading && !agent) return <p className="orchestrator-task-empty text-sm" role="status">{uiText("A carregar o pensamento da IA…")}</p>
   const summary = agent?.last_main_request_summary?.trim()
   const message = agent?.last_turn?.message?.trim()
-  if (!summary && !message) return <p className="orchestrator-task-empty text-sm">O GPT ainda não respondeu nesta execução.</p>
+  if (!summary && !message) return <p className="orchestrator-task-empty text-sm">{uiText("O GPT ainda não respondeu nesta execução.")}</p>
   return <div className="orchestrator-task-thinking">
-    {summary ? <article><header className="text-sm"><Icon name="sparkles" size={13}/> Resumo cumulativo</header><MarkdownContent markdown={summary} compact/></article> : null}
-    {message && message !== summary ? <article><header className="text-sm"><Icon name="chatgpt" size={13}/> Última resposta{agent?.last_turn?.kind ? ` · ${agent.last_turn.kind}` : ''}</header><MarkdownContent markdown={message} compact/></article> : null}
+    {summary ? <article><header className="text-sm"><Icon name="sparkles" size={13}/> {' '}{uiText("Resumo cumulativo")}</header><MarkdownContent markdown={summary} compact/></article> : null}
+    {message && message !== summary ? <article><header className="text-sm"><Icon name="chatgpt" size={13}/> {' '}{uiText("Última resposta")}{agent?.last_turn?.kind ? ` · ${agent.last_turn.kind}` : ''}</header><MarkdownContent markdown={message} compact/></article> : null}
   </div>
 }
 
 export function TaskBundleTab({ agent, loading }: { agent?: Session; loading: boolean }) {
-  if (!agent) return <p className="orchestrator-task-empty text-sm" role={loading ? 'status' : undefined}>{loading ? 'A carregar bundles…' : 'Sem bundles nesta execução.'}</p>
+  if (!agent) return <p className="orchestrator-task-empty text-sm" role={loading ? 'status' : undefined}>{loading ? uiText("A carregar bundles…") : uiText("Sem bundles nesta execução.")}</p>
   return <ChatArtifactLibrary sessionId={agent.id} artifacts={agent.artifacts} requestLineages={agent.request_lineages}/>
 }
 
 export function TaskPlanTab({ agent, events, loading, error }: { agent?: Session; events: HarnessEvent[]; loading: boolean; error: string }) {
-  if (!agent) return <p className="orchestrator-task-empty text-sm" role={loading ? 'status' : undefined}>{loading ? 'A carregar o plano…' : 'Sem plano nesta execução.'}</p>
+  if (!agent) return <p className="orchestrator-task-empty text-sm" role={loading ? 'status' : undefined}>{loading ? uiText("A carregar o plano…") : uiText("Sem plano nesta execução.")}</p>
   return <PlanHistorySurface session={agent} events={events} loading={loading} error={error}
     renderHistoricalPlan={(historySession) => <PlanView session={historySession} readOnly/>}
     currentPlan={<PlanView session={agent} readOnly/>}/>
 }
 
 export function TaskExecutionTab({ agent, events, loading, error }: { agent?: Session; events: HarnessEvent[]; loading: boolean; error: string }) {
-  if (!agent) return <p className="orchestrator-task-empty text-sm" role={loading ? 'status' : undefined}>{loading ? 'A carregar a execução…' : 'Sem execução registada.'}</p>
+  if (!agent) return <p className="orchestrator-task-empty text-sm" role={loading ? 'status' : undefined}>{loading ? uiText("A carregar a execução…") : uiText("Sem execução registada.")}</p>
   return <ExecutionHistorySurface session={agent} events={events} loading={loading} error={error}/>
 }
 
@@ -81,13 +82,13 @@ export function TaskEngineTab({ task }: { task: OrchestratorTask }) {
     return () => { alive = false; off() }
   }, [bridge, task.id])
 
-  if (!bridge) return <p className="orchestrator-task-empty text-sm">A instância do navegador só está disponível no Wharnex Desktop.</p>
+  if (!bridge) return <p className="orchestrator-task-empty text-sm">{uiText("A instância do navegador só está disponível no Wharnex Desktop.")}</p>
   return <div className="orchestrator-task-engine">
     <section>
       <div>
-        <strong>{agentId ? `${label} está nesta task` : 'Nenhum Worker nesta task agora'}</strong>
-        <small>{agentId ? 'O navegador deste Worker aparece abaixo enquanto ele permanecer associado à task.' : task.status === 'DOING' ? 'A aguardar que um Worker retome a próxima ronda.' : 'Só uma task em execução tem um Worker associado.'}</small>
-        {task.conversation_url ? <code className="text-sm" title="Conversa permanente da task">{task.conversation_url}</code> : null}
+        <strong>{agentId ? `${label} está nesta task` : uiText("Nenhum Worker nesta task agora")}</strong>
+        <small>{agentId ? uiText("O navegador deste Worker aparece abaixo enquanto ele permanecer associado à task.") : task.status === 'DOING' ? uiText("A aguardar que um Worker retome a próxima ronda.") : uiText("Só uma task em execução tem um Worker associado.")}</small>
+        {task.conversation_url ? <code className="text-sm" title={uiText("Conversa permanente da task")}>{task.conversation_url}</code> : null}
       </div>
     </section>
     {agentId ? <WorkerFollowViewer agentId={agentId} onStop={() => { setAgentId(undefined); setLabel('') }}/> : null}

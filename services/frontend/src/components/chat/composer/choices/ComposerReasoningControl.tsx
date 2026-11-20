@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../../lib/workspace/localization'
 import type { ReasoningEffort } from '../../../../types'
 import { Icon } from '../../../presentation/chrome/Icon'
 import { ComposerSelectChoice } from './ComposerSelectChoice'
@@ -13,6 +14,6 @@ export function ComposerReasoningControl({ value, disabled, onChange }: {
   disabled: boolean
   onChange?: (effort: ReasoningEffort) => void
 }) {
-  return <ComposerSelectChoice label="Esforço de raciocínio" title="Inteligência · esforço de raciocínio aplicado pelo ChatGPT antes do envio"
-    icon={<Icon name="sparkles" size={12} />} value={value} options={options} disabled={disabled} onChange={onChange} />
+  return <ComposerSelectChoice label={uiText("Esforço de raciocínio")} title={uiText("Inteligência · esforço de raciocínio aplicado pelo ChatGPT antes do envio")}
+    icon={<Icon name="sparkles" size={12} />} value={value} options={options.map((option) => ({ ...option, label: uiText(option.label) }))} disabled={disabled} onChange={onChange} />
 }

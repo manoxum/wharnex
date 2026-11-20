@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { useState } from 'react'
 import type { ArtifactRecord, OrchestratorPlanningDetail } from '../../../types'
 import { BundleExplorerModal } from '../../artifacts/explorer/BundleExplorer'
@@ -8,26 +9,26 @@ import { Icon } from '../../presentation/chrome/Icon'
 function PlanningBundles({ sessionId, bundles }: { sessionId?: string; bundles: ArtifactRecord[] }) {
   const [open, setOpen] = useState<ArtifactRecord>()
   return <section className="grid gap-2">
-    <SectionTitle title="Bundles trocados com o GPT" count={bundles.length}/>
+    <SectionTitle title={uiText("Bundles trocados com o GPT")} count={bundles.length}/>
     {bundles.length ? <ul className="m-0 grid list-none gap-1.5 p-0">
       {bundles.map((bundle) => <li key={bundle.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--theme-border-soft)] p-2.5">
         <span className="min-w-0">
           <code className="block break-all text-sm text-[var(--theme-text)]">{bundle.name}</code>
           <span className="mt-1 flex flex-wrap gap-1">
-            <span className="rounded-full bg-[var(--theme-subtle)] px-1.5 py-0.5 text-xs text-[var(--theme-text-muted)]">{bundle.direction === 'input' ? 'Pedido enviado' : 'Resposta do GPT'}</span>
+            <span className="rounded-full bg-[var(--theme-subtle)] px-1.5 py-0.5 text-xs text-[var(--theme-text-muted)]">{bundle.direction === 'input' ? uiText("Pedido enviado") : uiText("Resposta do GPT")}</span>
             <span className="rounded-full bg-[var(--theme-subtle)] px-1.5 py-0.5 text-xs text-[var(--theme-text-muted)]">{formatBytes(bundle.size)}</span>
           </span>
         </span>
-        {sessionId ? <button type="button" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" onClick={() => setOpen(bundle)}><Icon name="package" size={13}/> Explorar</button> : null}
+        {sessionId ? <button type="button" className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-elevated)] px-2.5 py-1.5 text-sm font-semibold" onClick={() => setOpen(bundle)}><Icon name="package" size={13}/> {' '}{uiText("Explorar")}</button> : null}
       </li>)}
-    </ul> : <p className="m-0 text-sm text-[var(--theme-text-muted)]">Nenhum bundle registado para este planeamento. Os planeamentos anteriores a esta versão não guardavam os bundles.</p>}
+    </ul> : <p className="m-0 text-sm text-[var(--theme-text-muted)]">{uiText("Nenhum bundle registado para este planeamento. Os planeamentos anteriores a esta versão não guardavam os bundles.")}</p>}
     {open && sessionId ? <BundleExplorerModal sessionId={sessionId} bundle={open} onClose={() => setOpen(undefined)}/> : null}
   </section>
 }
 
 export function OrchestratorPlanFilesTab({ detail, sessionId }: { detail: OrchestratorPlanningDetail; sessionId?: string }) {
   const bundles = detail.bundles || []
-  if (!bundles.length) return <EmptyState message="Nenhum bundle de pedido ou resposta foi registado para este planeamento."/>
+  if (!bundles.length) return <EmptyState message={uiText("Nenhum bundle de pedido ou resposta foi registado para este planeamento.")}/>
   return <PlanningBundles sessionId={sessionId} bundles={bundles}/>
 }
 
@@ -49,19 +50,19 @@ export function OrchestratorPlanTab({ detail }: { detail: OrchestratorPlanningDe
         <div className="min-w-0"><span className="font-mono text-sm text-[var(--theme-text-soft)]">{plan.id}</span><h3 className="m-0 mt-0.5 text-lg">{plan.title}</h3></div>
         <span className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm font-bold">{plan.status}</span>
       </div>
-      <div><strong className="text-sm">Objetivo</strong><p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{plan.objective || detail.objective || 'Sem objetivo registrado.'}</p></div>
+      <div><strong className="text-sm">{uiText("Objetivo")}</strong><p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{plan.objective || detail.objective || 'Sem objetivo registrado.'}</p></div>
       <div><strong className="text-sm">Assumptions</strong>{plan.assumptions?.length
         ? <ul className="mb-0 mt-1 pl-5 text-sm text-[var(--theme-text-muted)]">{plan.assumptions.map((item) => <li key={item}>{item}</li>)}</ul>
-        : <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">Nenhuma assumption registrada.</p>}
+        : <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">{uiText("Nenhuma assumption registrada.")}</p>}
       </div>
     </section>
     <section className="grid gap-2">
-      <SectionTitle title="Estrutura DAG das tasks" count={detail.tasks.length}/>
-      {detail.tasks.length ? <SearchBox value={search} onChange={setSearch} label="Pesquisar tasks e dependências"/> : null}
+      <SectionTitle title={uiText("Estrutura DAG das tasks")} count={detail.tasks.length}/>
+      {detail.tasks.length ? <SearchBox value={search} onChange={setSearch} label={uiText("Pesquisar tasks e dependências")}/> : null}
       <div className="grid gap-2">{visibleTasks.map(({ task }) => <article key={task.id} className="rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-2.5">
         <div className="flex items-start justify-between gap-2"><strong className="text-sm">{task.title}</strong><span className="font-mono text-xs text-[var(--theme-text-soft)]">{task.status}</span></div>
         <code className="mt-1 block break-all text-xs text-[var(--theme-text-soft)]">{task.id}</code>
-        <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">{task.depends_on?.length ? `← ${task.depends_on.map((id) => names.get(id) || id).join(' · ')}` : 'Ponto de entrada · sem dependências'}</p>
+        <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">{task.depends_on?.length ? `← ${task.depends_on.map((id) => names.get(id) || id).join(' · ')}` : uiText("Ponto de entrada · sem dependências")}</p>
       </article>)}</div>
       {!detail.tasks.length ? <EmptyState message="O plano ainda não possui tasks importadas."/> : !visibleTasks.length ? <InlineEmpty search={search}/> : null}
     </section>
@@ -81,7 +82,7 @@ function EmptyState({ message }: { message: string }) {
 }
 
 function InlineEmpty({ search, fallback = 'Nenhum item corresponde à pesquisa.' }: { search: string; fallback?: string }) {
-  return <p className="m-0 text-sm text-[var(--theme-text-muted)]">{search.trim() ? 'Nenhum item corresponde à pesquisa.' : fallback}</p>
+  return <p className="m-0 text-sm text-[var(--theme-text-muted)]">{search.trim() ? uiText("Nenhum item corresponde à pesquisa.") : fallback}</p>
 }
 
 function normalizeSearch(value: string) { return value.trim().toLocaleLowerCase('pt') }

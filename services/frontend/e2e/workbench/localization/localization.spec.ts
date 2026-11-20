@@ -1,0 +1,33 @@
+import { expect, test } from '@playwright/test'
+
+test('English task actions preserve content and deletion confirmation works end to end', async ({ page }) => {
+  await page.goto('/e2e/workbench/fixture.html?surface=localization&lang=en')
+  await expect(page.getByText('Guardar alterações', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible()
+  await expect(page.getByText('Improvement', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Delete task', exact: true }).click()
+  const dialog = page.getByRole('alertdialog', { name: 'Delete task', exact: true })
+  await expect(dialog).toContainText('Permanently delete "Guardar alterações"? This cannot be undone.')
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(page.getByText('Guardar alterações', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Delete task', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(page.getByText('No tasks', { exact: true })).toBeVisible()
+  await expect(page.getByText('Guardar alterações', { exact: true })).toHaveCount(0)
+})
+
+test('language selection persists without resetting live composer state', async ({ page }) => {
+  await page.goto('/e2e/workbench/fixture.html?surface=localization&lang=pt')
+  await page.getByTestId('composer').getByRole('button', { name: 'Auto + Aprovar', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Idioma da interface' }).selectOption('en')
+  await page.getByRole('button', { name: 'Guardar idiomas', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await expect(page.getByRole('combobox', { name: 'Interface language' })).toHaveValue('en')
+  await expect(page.getByTestId('composer').getByRole('button', { name: 'Auto + Approve', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('Guardar alterações', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('wharnex.interface-language.v1'))).toBe('en')
+  await page.goto('/e2e/workbench/fixture.html?surface=localization')
+  await expect(page.getByRole('combobox', { name: 'Interface language' })).toHaveValue('en')
+  await expect(page.getByRole('button', { name: 'New chat', exact: true })).toBeVisible()
+})

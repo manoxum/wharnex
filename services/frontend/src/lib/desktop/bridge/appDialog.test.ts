@@ -42,7 +42,7 @@ describe('appDialog', () => {
 
     const card = document.querySelector<HTMLElement>('.app-dialog-card')
     expect(card?.getAttribute('role')).toBe('alertdialog')
-    expect(card?.getAttribute('aria-modal')).toBe('false')
+    expect(card?.getAttribute('aria-modal')).toBe('true')
     expect(card?.textContent).toContain('Aplicar alterações?')
     const apply = [...document.querySelectorAll<HTMLButtonElement>('.app-dialog-button')].find((button) => button.textContent === 'Aplicar')
     apply?.click()

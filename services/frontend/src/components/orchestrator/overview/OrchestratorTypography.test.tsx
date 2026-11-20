@@ -22,10 +22,10 @@ describe('Orchestrator typography migration', () => {
   })
 
   it('keeps Tailwind typography tokens attached to the persisted UI scale', () => {
-    expect(tailwindCss).toContain('--text-sm: calc(9px * var(--ui-font-scale));')
-    expect(tailwindCss).toContain('--text-base: calc(11px * var(--ui-font-scale));')
-    expect(tailwindCss).toContain('--text-lg: calc(14px * var(--ui-font-scale));')
-    expect(tailwindCss).toContain('--text-2xl: calc(22px * var(--ui-font-scale));')
+    expect(tailwindCss).toContain('--text-sm: calc(9.75px * var(--ui-font-scale));')
+    expect(tailwindCss).toContain('--text-base: calc(10.5px * var(--ui-font-scale));')
+    expect(tailwindCss).toContain('--text-lg: calc(11.5px * var(--ui-font-scale));')
+    expect(tailwindCss).toContain('--text-2xl: calc(14px * var(--ui-font-scale));')
   })
 
   it('removes legacy Orchestrator font sizing from the migrated surface', () => {

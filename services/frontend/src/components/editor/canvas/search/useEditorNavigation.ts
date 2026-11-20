@@ -22,6 +22,11 @@ export function useEditorNavigation({ active, searchMode, setSearchMode, openPat
     return () => window.removeEventListener('keydown', shortcut, true)
   }, [active, searchMode])
   useEffect(() => {
+    const reveal = (event: Event) => { const problem = (event as CustomEvent<{ path: string; line: number; column: number }>).detail; if (problem?.path) void onOpenAt(problem.path, problem.line, problem.column) }
+    window.addEventListener('wharnex:open-code-problem', reveal)
+    return () => window.removeEventListener('wharnex:open-code-problem', reveal)
+  }, [onOpenAt])
+  useEffect(() => {
     if (!openPath || !openNonce) return
     if (openLocation) void onOpenAt(openPath, openLocation.line, openLocation.column)
     else void onOpen(openPath)

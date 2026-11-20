@@ -16,6 +16,7 @@ import { ComposerAttachmentChip } from '../attachments/ChatAttachmentCard'
 import { applyDirectiveKindSuggestion, applyDirectiveSuggestion, canonicalDirective, directiveKindQuery, directiveKindSuggestions, directiveQuery, directiveSuggestions, parseDirectives, removeDirective, seeDirectiveAvailable, type ComposerDirective, type DirectiveKindSuggestion, type DirectiveQuery, type ReferenceableProject } from '../../../lib/chat/composer/composerDirectives'
 import { ComposerDirectiveConfigPopover, type DirectivePopoverAnchor } from '../composer/ComposerDirectiveConfigPopover'
 import { ComposerRichEditor, type CaretRequest, type ComposerRichEditorHandle } from '../composer/ComposerRichEditor'
+import { COMPOSER_EDITOR_LAYOUT_CLASS, COMPOSER_SURFACE_LAYOUT_CLASS } from '../composer/composerLayout'
 import { ComposerAttachmentPanel } from '../attachments/ComposerAttachmentPanel'
 import { ComposerDirectiveMenuLayer, ComposerDirectiveOptionRows } from '../composer/ComposerDirectiveMenuLayer'
 import { ComposerReferenceThumbnail } from '../attachments/ComposerReferenceThumbnail'
@@ -870,7 +871,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
     {transportProgress && <div className="context-publication-progress" role="status"><span className="publication-orbit"><i/><i/><i/></span><div className="context-publication-copy"><strong>A preparar rotas remotas</strong><small>{transportProgress}</small></div>{transportRequestId && onCancelPendingRequest ? <button type="button" className="text-button danger context-publication-cancel" aria-label="Cancelar preparação do bundle" onClick={() => void onCancelPendingRequest(transportRequestId)}><Icon name="close" size={12}/> Cancelar</button> : null}</div>}
 
-    <form ref={composerRef} className={`composer ${composerTypingAttention ? 'composer-typing-attention' : ''} ${taskInFlight ? 'comment-mode' : ''} ${planAdjustment ? 'plan-adjustment-mode' : ''}`} style={{ height: composerHeight }} onSubmit={submitMain}>
+    <form ref={composerRef} className={`${COMPOSER_SURFACE_LAYOUT_CLASS} ${composerTypingAttention ? 'composer-typing-attention' : ''} ${taskInFlight ? 'comment-mode' : ''} ${planAdjustment ? 'plan-adjustment-mode' : ''}`} style={{ height: composerHeight }} onSubmit={submitMain}>
       {composerTypingAttention && <span className="composer-project-attention" role="status" aria-live="polite" aria-label={`Projeto ativo: ${composerProjectName}`}><Icon name="workspace" size={11}/><span>A escrever em</span><strong title={session.project_path}>{composerProjectName}</strong></span>}
       <div
         className="composer-resize-handle"
@@ -896,7 +897,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       {attachmentError && <div className="composer-error" role="alert">{attachmentError}</div>}
       {engine !== 'codex' && bundlePreviewError && <div className="composer-error" role="alert">{bundlePreviewError}</div>}
       {attachmentsPanelOpen && <ComposerAttachmentPanel sessionId={session.id} message={message} onMessage={(value) => { composerMessageRef.current = value; setMessage(value) }} initialPath={attachmentsPanelPath} initialKind={attachmentsPanelKind} onClose={() => { setAttachmentsPanelOpen(false); setAttachmentsPanelPath(undefined) }}/>}
-      <div ref={editorShellRef} className="composer-editor-shell" onPointerDown={focusComposerFromSurface}>
+      <div ref={editorShellRef} className={COMPOSER_EDITOR_LAYOUT_CLASS} onPointerDown={focusComposerFromSurface}>
         <ComposerRichEditor
           ref={richEditorRef} value={message} caret={pendingCaret} onChange={updateMessage}
           onClickDirective={openDirectivePopover} onConfigureDirective={configureDirective} onRemoveDirective={removeDirectiveChip}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { css, lastRule, firstRule } from '../../cascade/styleRules'
 import { allocateSupportingPanels, primaryWorkspaceReserve } from '../../../components/workspace/shell/layout/panelAllocation'
+import splitterSource from '../../../components/agent/workspace/AgentWorkspaceSplitter.tsx?raw'
 
 describe('split Agent layout CSS', () => {
   it('keeps the resizable split while moving Agent shortcuts into a dedicated right rail', () => {
@@ -21,7 +22,8 @@ describe('split Agent layout CSS', () => {
     expect(splitLayout).toContain('.agent-chat-switcher { grid-column: 1 / 4; grid-row: 1; }')
     expect(splitLayout).toContain('.agent-chat-stage { grid-column: 1; grid-row: 2; }')
     expect(splitLayout).toContain('.agent-inspector-stage { grid-column: 3; grid-row: 2; }')
-    expect(splitLayout).toContain('.agent-splitter { grid-column: 2; grid-row: 2; }')
+    expect(splitterSource).toContain('col-start-2 row-start-3')
+    expect(css).not.toContain('.agent-splitter {')
     expect(splitLayout).toContain('.agent-commandbar .agent-attention-popover { right: calc(100% + 8px); top: 0; }')
     expect(splitLayout).toContain('grid-template-rows: repeat(4, 42px)')
     expect(lastRule('.topbar-indicator')).toContain('width: 27px')

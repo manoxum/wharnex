@@ -28,9 +28,11 @@ it('uses main-branch document chrome with full accessible paths and separate clo
     expect(tab.title).toBe(document.path)
     expect(tab.parentElement!.hasAttribute('data-resource-tab')).toBe(true)
     expect(tab.parentElement!.className).toContain('max-w-[230px]')
-    expect(tab.parentElement!.className).toContain('h-[36px]')
+    expect(tab.parentElement!.className).toContain('h-[34px]')
     expect(tab.querySelector('[data-tab-label]')!.className).toContain('max-w-[150px]')
     expect(tab.querySelector('[data-tab-label]')!.className).toContain('truncate')
+    expect(tab.className).toContain('normal-case')
+    expect(tab.className).toContain('calc(11px*var(--ui-font-scale))')
   }
   expect(screen.getByRole('tab', { name: 'App.tsx' }).querySelector('.dirty-dot')).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Fechar src/App.tsx' }))

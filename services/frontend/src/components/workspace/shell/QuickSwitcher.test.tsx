@@ -2,10 +2,11 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { announceHeaderPopover } from '../../../lib/desktop/bridge/headerPopover'
 import { loadUIPreferences } from '../../../lib/workspace/preferences/uiPreferences'
+import { setLocalePreference } from '../../../lib/workspace/localization'
 import { QuickSwitcher } from './QuickSwitcher'
 
 describe('QuickSwitcher', () => {
-  beforeEach(() => localStorage.clear())
+  beforeEach(() => { localStorage.clear(); setLocalePreference('pt') })
 
   it('keeps primary appearance choices compact and exposes advanced layout controls on demand', () => {
     render(<QuickSwitcher />)

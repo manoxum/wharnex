@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { FormEvent, useState } from 'react'
 import { desktopBridge, isDesktop } from '../../../lib/desktop/bridge/desktop'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -45,50 +46,50 @@ export function ProjectLinkModal({ recent, boundProjects, busy, error, onOpen, o
     if (repository.trim() && parent.trim() && await onClone(repository.trim(), parent.trim(), directory.trim())) onClose()
   }
 
-  return <InternalWindow title="Vincular projeto" layerClassName="project-link-backdrop" onClose={onClose} closeDisabled={busy}>
+  return <InternalWindow title={uiText("Vincular projeto")} layerClassName="project-link-backdrop" onClose={onClose} closeDisabled={busy}>
     <section className="project-link-modal" role="dialog" aria-modal="false" aria-labelledby="project-link-title">
       <header>
-        <div><span className="panel-kicker">Workspace</span><h2 id="project-link-title">Vincular projeto</h2><p>Retome um projeto usado recentemente ou escolha como adicionar outro a esta janela.</p></div>
-        <button type="button" className="agent-drawer-icon" disabled={busy} onClick={onClose} aria-label="Fechar vinculação"><Icon name="close" size={14}/></button>
+        <div><span className="panel-kicker">Workspace</span><h2 id="project-link-title">{uiText("Vincular projeto")}</h2><p>{uiText("Retome um projeto usado recentemente ou escolha como adicionar outro a esta janela.")}</p></div>
+        <button type="button" className="agent-drawer-icon" disabled={busy} onClick={onClose} aria-label={uiText("Fechar vinculação")}><Icon name="close" size={14}/></button>
       </header>
 
       {mode === 'recent' && <div className="project-link-recent">
-        <div className="project-link-section-heading"><strong>Projetos recentes</strong><small>{recent.length ? 'Acesso rápido sem voltar ao localizador de pastas.' : 'Ainda não existem projetos recentes neste perfil.'}</small></div>
+        <div className="project-link-section-heading"><strong>{uiText("Projetos recentes")}</strong><small>{recent.length ? uiText("Acesso rápido sem voltar ao localizador de pastas.") : uiText("Ainda não existem projetos recentes neste perfil.")}</small></div>
         {recent.length > 0 ? <div className="project-link-recent-list">{recent.map((item) => {
           const linked = boundProjects.includes(item)
           return <button type="button" key={item} disabled={busy} onClick={() => void openRecent(item)} title={item}>
             <span className="project-link-recent-icon"><Icon name="workspace" size={16}/></span>
             <span><strong>{projectName(item)}</strong><small>{item}</small></span>
-            <em>{linked ? 'Vinculado' : 'Abrir'}</em>
+            <em>{linked ? uiText("Vinculado") : uiText("Abrir")}</em>
           </button>
-        })}</div> : <div className="project-link-empty"><Icon name="workspace" size={20}/><span>Os projetos que abrir aparecerão aqui.</span></div>}
+        })}</div> : <div className="project-link-empty"><Icon name="workspace" size={20}/><span>{uiText("Os projetos que abrir aparecerão aqui.")}</span></div>}
       </div>}
 
       {mode === 'create' && <form className="project-link-form" onSubmit={create}>
-        <div className="project-link-section-heading"><strong>Criar novo projeto</strong><small>O novo projeto é criado e vinculado imediatamente a esta janela.</small></div>
-        <label>Pasta pai</label>
-        <div className="path-picker-row"><input value={parent} onChange={(event) => setParent(event.target.value)} placeholder="Escolha a pasta de destino" spellCheck={false} readOnly={isDesktop()}/><button type="button" disabled={busy} onClick={() => void chooseParent('Selecionar pasta pai')}><Icon name="folder" size={14}/> Procurar</button></div>
-        <label>Nome do projeto</label>
+        <div className="project-link-section-heading"><strong>{uiText("Criar novo projeto")}</strong><small>{uiText("O novo projeto é criado e vinculado imediatamente a esta janela.")}</small></div>
+        <label>{uiText("Pasta pai")}</label>
+        <div className="path-picker-row"><input value={parent} onChange={(event) => setParent(event.target.value)} placeholder={uiText("Escolha a pasta de destino")} spellCheck={false} readOnly={isDesktop()}/><button type="button" disabled={busy} onClick={() => void chooseParent(uiText('Selecionar pasta pai'))}><Icon name="folder" size={14}/> Procurar</button></div>
+        <label>{uiText("Nome do projeto")}</label>
         <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="meu-projeto" spellCheck={false}/>
-        <button className="primary-button" type="submit" disabled={busy || !parent.trim() || !name.trim()}>{busy ? 'A criar…' : 'Criar e vincular'}</button>
+        <button className="primary-button" type="submit" disabled={busy || !parent.trim() || !name.trim()}>{busy ? uiText("A criar…") : uiText("Criar e vincular")}</button>
       </form>}
 
       {mode === 'clone' && <form className="project-link-form" onSubmit={clone}>
-        <div className="project-link-section-heading"><strong>Clonar projeto Git</strong><small>O clone é preparado e vinculado a esta janela assim que terminar.</small></div>
-        <label>Repositório Git</label>
+        <div className="project-link-section-heading"><strong>{uiText("Clonar projeto Git")}</strong><small>{uiText("O clone é preparado e vinculado a esta janela assim que terminar.")}</small></div>
+        <label>{uiText("Repositório Git")}</label>
         <input autoFocus value={repository} onChange={(event) => setRepository(event.target.value)} placeholder="https://github.com/org/projeto.git" spellCheck={false}/>
-        <label>Pasta de destino</label>
-        <div className="path-picker-row"><input value={parent} onChange={(event) => setParent(event.target.value)} placeholder="Escolha a pasta de destino" spellCheck={false} readOnly={isDesktop()}/><button type="button" disabled={busy} onClick={() => void chooseParent('Selecionar destino do clone')}><Icon name="folder" size={14}/> Procurar</button></div>
-        <label>Nome da pasta <span className="optional-label">opcional</span></label>
-        <input value={directory} onChange={(event) => setDirectory(event.target.value)} placeholder="Derivado do repositório" spellCheck={false}/>
-        <button className="primary-button" type="submit" disabled={busy || !repository.trim() || !parent.trim()}>{busy ? 'A clonar…' : 'Clonar e vincular'}</button>
+        <label>{uiText("Pasta de destino")}</label>
+        <div className="path-picker-row"><input value={parent} onChange={(event) => setParent(event.target.value)} placeholder={uiText("Escolha a pasta de destino")} spellCheck={false} readOnly={isDesktop()}/><button type="button" disabled={busy} onClick={() => void chooseParent(uiText('Selecionar destino do clone'))}><Icon name="folder" size={14}/> Procurar</button></div>
+        <label>{uiText("Nome da pasta")}{' '}<span className="optional-label">{uiText("opcional")}</span></label>
+        <input value={directory} onChange={(event) => setDirectory(event.target.value)} placeholder={uiText("Derivado do repositório")} spellCheck={false}/>
+        <button className="primary-button" type="submit" disabled={busy || !repository.trim() || !parent.trim()}>{busy ? uiText("A clonar…") : uiText("Clonar e vincular")}</button>
       </form>}
 
       {error && <div className="project-link-error" role="alert">{error}</div>}
       <footer className="project-link-actions">
-        <button type="button" disabled={busy} onClick={() => mode === 'recent' ? void browse() : setMode('recent')}><Icon name={mode === 'recent' ? 'folder' : 'workspace'} size={16}/><span><strong>{mode === 'recent' ? 'Carregar outro' : 'Projetos recentes'}</strong><small>{mode === 'recent' ? 'Escolher uma pasta' : 'Voltar à lista rápida'}</small></span></button>
-        <button type="button" className={mode === 'create' ? 'active' : ''} disabled={busy} onClick={() => setMode('create')}><Icon name="plus" size={16}/><span><strong>Criar projeto</strong><small>Novo workspace local</small></span></button>
-        <button type="button" className={mode === 'clone' ? 'active' : ''} disabled={busy} onClick={() => setMode('clone')}><Icon name="git" size={16}/><span><strong>Clonar Git</strong><small>Trazer um repositório</small></span></button>
+        <button type="button" disabled={busy} onClick={() => mode === 'recent' ? void browse() : setMode('recent')}><Icon name={mode === 'recent' ? 'folder' : 'workspace'} size={16}/><span><strong>{mode === 'recent' ? uiText("Carregar outro") : uiText("Projetos recentes")}</strong><small>{mode === 'recent' ? uiText("Escolher uma pasta") : uiText("Voltar à lista rápida")}</small></span></button>
+        <button type="button" className={mode === 'create' ? 'active' : ''} disabled={busy} onClick={() => setMode('create')}><Icon name="plus" size={16}/><span><strong>{uiText("Criar projeto")}</strong><small>{uiText("Novo workspace local")}</small></span></button>
+        <button type="button" className={mode === 'clone' ? 'active' : ''} disabled={busy} onClick={() => setMode('clone')}><Icon name="git" size={16}/><span><strong>{uiText("Clonar Git")}</strong><small>{uiText("Trazer um repositório")}</small></span></button>
       </footer>
     </section>
   </InternalWindow>

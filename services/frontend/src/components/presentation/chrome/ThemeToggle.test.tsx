@@ -2,10 +2,12 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { saveUIPreferences } from '../../../lib/workspace/preferences/uiPreferences'
 import { ThemePreferenceControl, ThemeToggle } from './ThemeToggle'
+import { setLocalePreference } from '../../../lib/workspace/localization'
 
 describe('theme controls', () => {
   beforeEach(() => {
     localStorage.clear()
+    setLocalePreference('pt')
     document.documentElement.removeAttribute('data-theme')
     document.documentElement.removeAttribute('data-theme-preference')
     document.documentElement.removeAttribute('data-ui-theme')

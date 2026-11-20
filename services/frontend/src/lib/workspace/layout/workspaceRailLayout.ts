@@ -1,14 +1,14 @@
 export type WorkspaceRailSide = 'left' | 'right'
-export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'external-agents' | 'tasks' | 'errors' | 'evolution' | 'terminal' | 'database' | 'docker' | 'ui-testing'
+export type WorkspaceTool = 'archive' | 'todo' | 'project' | 'library' | 'knowledge' | 'git' | 'agents' | 'external-agents' | 'tasks' | 'errors' | 'evolution' | 'problems' | 'output' | 'terminal' | 'database' | 'docker' | 'ui-testing'
 export type WorkspaceRailLayout = Record<WorkspaceRailSide, WorkspaceTool[]> & { pinned: Record<WorkspaceRailSide, WorkspaceTool[]> }
 
 const STORAGE_KEY = 'whx.workspace.rail-layout.v9'
 const LAYOUT_CHANGED_EVENT = 'wharnex:workspace-rail-layout-changed'
 const LEGACY_STORAGE_KEYS = ['whx.workspace.rail-layout.v8', 'whx.workspace.rail-layout.v7', 'whx.workspace.rail-layout.v6', 'whx.workspace.rail-layout.v5', 'whx.workspace.rail-layout.v4', 'whx.workspace.rail-layout.v3', 'whx.workspace.rail-layout.v2', 'whx.workspace.rail-layout.v1']
-const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'errors', 'evolution', 'terminal', 'database', 'docker', 'ui-testing']
+const ALL_TOOLS: WorkspaceTool[] = ['archive', 'todo', 'project', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'errors', 'evolution', 'problems', 'output', 'terminal', 'database', 'docker', 'ui-testing']
 
 export const DEFAULT_WORKSPACE_RAIL_LAYOUT: WorkspaceRailLayout = {
-  left: ['archive', 'todo', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'errors', 'evolution'],
+  left: ['archive', 'todo', 'library', 'knowledge', 'git', 'agents', 'external-agents', 'tasks', 'problems', 'output', 'errors', 'evolution'],
   right: ['project', 'ui-testing', 'docker', 'database'],
   pinned: { left: ['terminal'], right: [] },
 }
@@ -16,7 +16,7 @@ export const DEFAULT_WORKSPACE_RAIL_LAYOUT: WorkspaceRailLayout = {
 // Previous defaults repair incomplete persisted layouts without moving tools.
 // New workspaces start with one grouped launcher; saved v9 placement wins.
 export const WORKBENCH_NAVIGATION_LAYOUT: WorkspaceRailLayout = {
-  left: ['project', 'git', 'errors', 'agents', 'external-agents', 'archive', 'tasks', 'evolution', 'todo', 'knowledge', 'library', 'ui-testing', 'docker', 'database'],
+  left: ['project', 'git', 'problems', 'output', 'errors', 'agents', 'external-agents', 'archive', 'tasks', 'evolution', 'todo', 'knowledge', 'library', 'ui-testing', 'docker', 'database'],
   right: [],
   pinned: { left: ['terminal'], right: [] },
 }

@@ -1,11 +1,10 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessEvent, Session } from '../../../../types'
 import { OperationalOutput } from './OperationalOutput'
 
 const events = vi.hoisted(() => ({ durable: [] as HarnessEvent[] }))
 vi.mock('../../../execution/history/useExecutionHistory', () => ({ useExecutionHistory: () => ({ events: events.durable, loading: false, error: '' }) }))
-vi.mock('../../../execution/history/ExecutionHistorySurface', () => ({ ExecutionHistorySurface: ({ events }: { events: HarnessEvent[] }) => <output aria-label="Eventos de execução">{events.map((event) => event.id).join(',')}</output> }))
 
 describe('operational output ledger', () => {
   it('keeps persisted evidence visible after the snapshot has cleared and merges live events once', () => {
@@ -15,6 +14,7 @@ describe('operational output ledger', () => {
     events.durable = [persisted]
     render(<OperationalOutput session={session} events={[persisted, live]} active/>)
     expect(session.last_execution).toBeUndefined()
-    expect(screen.getByLabelText('Eventos de execução').textContent).toBe('persisted,live')
+    const log = within(screen.getByRole('region', { name: 'Saída de execução' })).getByRole('log', { name: 'Eventos de execução' })
+    expect(within(log).getAllByText('Execução concluída')).toHaveLength(2)
   })
 })

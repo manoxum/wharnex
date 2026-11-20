@@ -101,7 +101,6 @@
 }
 .agent-chat-switcher { grid-column: 1 / 4; grid-row: 1; }
 .agent-chat-stage { grid-column: 1; grid-row: 2; }
-.agent-splitter { grid-column: 2; grid-row: 2; }
 .agent-inspector-stage { grid-column: 3; grid-row: 2; }
 
 .workspace-agent-rail-slot {

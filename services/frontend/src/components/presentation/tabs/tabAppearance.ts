@@ -15,9 +15,9 @@ export const tabButtonAppearance: Record<TabAppearance, string> = {
     focus-visible:outline-[var(--theme-accent)]!
   `,
   conversation: `
-    rounded-none border-0 shadow-none h-[27px] min-h-0 min-w-0 max-w-[182px] gap-[7px] py-0 pl-[9px] pr-[7px]
-    text-[length:calc(9px*var(--ui-font-scale))]! font-normal! text-whx-faint hover:text-whx-text
-    aria-selected:text-whx-text aria-selected:font-bold! focus-visible:outline-[var(--theme-accent)]!
+    rounded-none border-0 shadow-none h-full min-h-0 min-w-0 max-w-[182px] gap-[7px] py-0 pl-[9px] pr-[7px]
+    text-[length:calc(11px*var(--ui-font-scale))]! font-normal! normal-case tracking-normal text-whx-soft hover:text-whx-text
+    aria-selected:text-whx-text aria-selected:font-semibold! focus-visible:outline-[var(--theme-accent)]!
     [.agent-chat-switcher_&]:h-full
   `,
   project: `
@@ -39,7 +39,7 @@ export const tabButtonAppearance: Record<TabAppearance, string> = {
   `,
   document: `
     rounded-none border-0 shadow-none h-full min-h-0 min-w-0 flex-1 justify-start gap-1.5
-    py-0 pl-2.5 pr-0 text-[length:calc(11px*var(--ui-font-scale))]! font-medium! text-inherit
+    py-0 pl-2 pr-0 text-[length:calc(11px*var(--ui-font-scale))]! font-medium! normal-case tracking-normal text-inherit
     focus-visible:outline-[var(--theme-accent)]!
   `,
   workbench: `${workbenchChrome} shrink-0 grow justify-center`,

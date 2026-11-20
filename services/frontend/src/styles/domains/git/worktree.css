@@ -1,17 +1,4 @@
-/* Git worktree paths and commits pending publication. */
-.git-worktree-files-section { gap: 7px; }
-.git-worktree-files { margin: 0; padding: 0; display: grid; gap: 5px; list-style: none; }
-.git-worktree-files li { min-width: 0; padding: 7px 8px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 7px; border: 1px solid var(--theme-border-soft); border-radius: 8px; background: var(--theme-bg); }
-.git-worktree-file-select { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.git-worktree-file-select input:disabled { cursor: default; }
-.git-worktree-file-icon { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 6px; background: var(--theme-muted); color: var(--theme-text-muted); }
-.git-worktree-file-copy { min-width: 0; display: grid; gap: 2px; }
-.git-worktree-file-copy strong { overflow: hidden; color: var(--theme-text); font: 600 calc(7.9px * var(--ui-font-scale))/1.35 var(--mono-font-family, monospace); text-overflow: ellipsis; white-space: nowrap; }
-.git-worktree-file-copy small { color: var(--theme-text-muted); font-size: calc(7px * var(--ui-font-scale)); }
-
-
-
-
+/* Worktree rows are styled with Tailwind in GitProjectWorktree. */
 .git-unpushed-summary { padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--theme-border-soft); border-radius: 9px; background: var(--theme-surface); }
 .git-unpushed-summary > div { min-width: 0; display: grid; gap: 2px; }
 .git-unpushed-summary span, .git-unpushed-summary small { color: var(--theme-text-muted); font-size: calc(7.2px * var(--ui-font-scale)); }

@@ -1,7 +1,7 @@
 
+
 [data-workbench-settings] input:not([type='checkbox']):not([type='radio']),
 [data-workbench-settings] select,
-.quick-switcher-select-shell,
 .panel-search-field {
   min-height: var(--control-md);
   border-radius: var(--radius-control);
@@ -13,15 +13,6 @@
 
 .desktop-browser-address {
   height: var(--control-sm);
-  border-radius: var(--radius-control);
-}
-.quick-switcher-popover {
-  border-radius: var(--radius-panel);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--theme-shadow) 62%, transparent);
-}
-.quick-switcher-control,
-.quick-switcher-accent-row {
-  min-height: 44px;
   border-radius: var(--radius-control);
 }
 
@@ -41,7 +32,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workspace-main-row > .agent-activity-bar button,
+
   .terminal-workspace:not(.terminal-workspace-hidden),
   .terminal-add-tab,
   .chat-panel .composer,
@@ -49,7 +40,6 @@
     transition: none;
   }
 }
-
 
 /* Workbench visual consolidation — final geometry and interaction grammar. */
 
@@ -141,13 +131,3 @@
 .error-toast-link { border-radius: var(--radius-control); color: var(--danger); }
 .error-toast-link:hover,
 .error-toast-close:hover { background: var(--theme-hover); }
-
-/* Dialogs may remain elevated, but use the same compact desktop geometry. */
-.app-dialog-card {
-  border-radius: 8px;
-  border-color: var(--theme-border);
-  background: var(--theme-elevated);
-  box-shadow: 0 20px 48px var(--theme-shadow);
-}
-.app-dialog-icon { border-radius: 6px; }
-.app-dialog-button { min-height: var(--control-md); border-radius: var(--radius-control); }

@@ -1,3 +1,4 @@
+import { applyDocumentLocale } from '../../workspace/localization'
 import type { LanguageCode, LanguageSettings } from '../../../types'
 
 export const LANGUAGE_OPTIONS: Array<{ code: LanguageCode; label: string }> = [
@@ -11,6 +12,6 @@ export function languageLabel(code: LanguageCode) {
 }
 
 export function applyInterfaceLanguage(settings: Pick<LanguageSettings, 'interface_language'>) {
-  document.documentElement.lang = settings.interface_language === 'pt' ? 'pt-PT' : settings.interface_language
+  applyDocumentLocale()
   window.dispatchEvent(new CustomEvent('wharness:language-settings', { detail: settings }))
 }

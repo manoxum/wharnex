@@ -1,5 +1,4 @@
 .git-tab-content {
-  padding: 12px;
   gap: 10px;
   background: color-mix(in srgb, var(--theme-bg) 97%, var(--theme-surface));
   scrollbar-gutter: stable;
@@ -48,6 +47,5 @@
 
 @container semantic-panel (max-width: 430px) {
   .git-repository-summary { margin-inline: 8px; }
-  .git-tab-content { padding: 9px; }
   .git-change-surface, .git-section { padding: 10px; border-radius: 10px; }
 }

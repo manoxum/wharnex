@@ -1,3 +1,4 @@
+import { translate as uiText, formatMessage } from '../../../lib/workspace/localization'
 import { useEffect, useRef, useState } from 'react'
 import { ChatBindingRecovery } from './ChatBindingRecovery'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -39,10 +40,10 @@ export function ChatBindingControl({ chatId, linkedUrl, mismatch = false, onBind
     <button
       type="button"
       className={`grid size-7 place-items-center rounded-md border transition ${tone}`}
-      aria-label={`Vínculo ChatGPT: ${stateLabel}`}
+      aria-label={formatMessage('Vínculo ChatGPT: {state}', { state: uiText(stateLabel) })}
       aria-haspopup="dialog"
       aria-expanded={open}
-      title={`Vínculo ChatGPT: ${stateLabel}`}
+      title={formatMessage('Vínculo ChatGPT: {state}', { state: uiText(stateLabel) })}
       onClick={() => setOpen((value) => !value)}
     >
       <Icon name={icon} size={15}/>
@@ -50,7 +51,7 @@ export function ChatBindingControl({ chatId, linkedUrl, mismatch = false, onBind
     {open && <div
       className="absolute right-0 top-[calc(100%+7px)] z-[70] w-[min(620px,calc(100vw-24px))]"
       role="dialog"
-      aria-label="Vínculo da conversa ChatGPT"
+      aria-label={uiText("Vínculo da conversa ChatGPT")}
     >
       <ChatBindingRecovery chatId={chatId} linkedUrl={linkedUrl} onBind={onBind} onLinked={() => setOpen(false)}/>
     </div>}

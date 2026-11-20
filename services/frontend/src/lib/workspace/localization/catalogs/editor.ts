@@ -1,0 +1,22 @@
+export const editor: Record<string, string> = {
+  "Guardado": "Saved",
+  "Ferramentas do Editor": "Editor tools",
+  "Dividir editor": "Split editor",
+  "Dividir editor verticalmente": "Split editor vertically",
+  "Dividir editor horizontalmente": "Split editor horizontally",
+  "Abrir ficheiro numa janela independente": "Open file in a separate window",
+  "Arraste para reorganizar ou use Alt+Shift+Seta esquerda/direita.": "Drag to reorder or use Alt+Shift+Left/Right.",
+  "Fechar {path}": "Close {path}",
+  "{count} projetos no contexto": "{count} projects in context",
+  "O Agent recebe contexto separado de todos os projetos vinculados; execução e Apply continuam isolados por projeto.": "The Agent receives separate context from linked projects; execution and Apply stay isolated per project.",
+  "Abrir projeto {name} pela lista": "Open project {name} from the list",
+  "Remover {name} dos recentes": "Remove {name} from recent projects",
+  "Vincular {name}": "Link {name}",
+  "Abrir {name}": "Open {name}",
+  "Centro de notificações, {total} alerta(s), {urgent} urgente(s), {actionable} com ação": "Notification center, {total} alerts, {urgent} urgent, {actionable} actionable",
+  "WHX · EVOLUÇÃO DA INSTÂNCIA {id}": "WHX · INSTANCE EVOLUTION {id}",
+  "WHX · AUTO-EVOLUÇÃO": "WHX · AUTO EVOLUTION",
+  "Desafixar projeto {name}": "Unpin project {name}",
+  "Fixar projeto {name}": "Pin project {name}",
+  "Desvincular {name} pelo menu de projetos": "Unlink {name} from the project menu"
+}

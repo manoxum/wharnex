@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ShellChrome } from '../shell/WorkspaceShell'
-beforeEach(() => { localStorage.clear(); delete window.wharnessDesktop })
+import { setLocalePreference } from '../../../lib/workspace/localization'
+beforeEach(() => { localStorage.clear(); setLocalePreference('pt'); delete window.wharnessDesktop })
 afterEach(() => { vi.restoreAllMocks(); delete window.wharnessDesktop })
 it('gives every linked project a stable accent and focuses projects owned by another window', async () => {
     const focusProject = vi.fn().mockResolvedValue({ ok: true, windowId: 'window-b', projectPath: '/tmp/beta' })

@@ -1,36 +1,3 @@
-.execution-errors-list > button {
-  min-height: 70px;
-  margin: 0;
-  padding: 10px 11px;
-  border: 0;
-  border-bottom: 1px solid var(--theme-border-soft);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: inset 2px 0 transparent;
-}
-.execution-errors-list > button.active { border-color: var(--theme-border-soft); background: var(--theme-hover); box-shadow: inset 2px 0 var(--danger); }
-.execution-errors-list > button.resolved.active { box-shadow: inset 2px 0 var(--success); }
-.execution-errors-list > button > span { font-size: calc(9px * var(--ui-font-scale)); }
-.execution-errors-list > button > span b { border-radius: 3px; background: transparent; }
-.execution-errors-list > button > strong { font-size: calc(11px * var(--ui-font-scale)); }
-.execution-errors-list > button > small { font-size: calc(9px * var(--ui-font-scale)); }
-.execution-error-detail { padding: 14px 15px; gap: 14px; }
-.execution-error-heading strong { font-size: calc(13px * var(--ui-font-scale)); }
-.execution-error-heading small { font-size: calc(9.5px * var(--ui-font-scale)); }
-.execution-error-status { border-radius: 3px; font-size: calc(8.5px * var(--ui-font-scale)); }
-.execution-error-meta { gap: 0; border-top: 1px solid var(--theme-border-soft); border-bottom: 1px solid var(--theme-border-soft); }
-.execution-error-meta > div { padding: 8px 9px; border: 0; border-right: 1px solid var(--theme-border-soft); border-radius: 0; background: transparent; }
-.execution-error-meta > div:nth-child(even) { border-right: 0; }
-.execution-error-meta dt { font-size: calc(8px * var(--ui-font-scale)); }
-.execution-error-meta dd { font-size: calc(9px * var(--ui-font-scale)); }
-.execution-error-detail section h4 { font-size: calc(9.5px * var(--ui-font-scale)); }
-.execution-error-detail section p { font-size: calc(10.5px * var(--ui-font-scale)); }
-.execution-error-logs article { padding: 9px 10px; border-radius: 4px; background: var(--theme-surface); box-shadow: inset 2px 0 color-mix(in srgb, var(--danger) 46%, var(--theme-border)); }
-.execution-error-logs article header b { font-size: calc(9.5px * var(--ui-font-scale)); }
-.execution-error-logs pre,
-.execution-error-solution pre { border-radius: 3px; font-size: calc(9px * var(--ui-font-scale)); }
-.execution-error-solution { border-radius: 4px; }
-
 .filter-heading { font-size: calc(9px * var(--ui-font-scale)); }
 .evolution-counts { gap: 0; padding: 0 10px; background: var(--theme-surface); }
 .evolution-counts span { padding: 7px 9px; border-right: 1px solid var(--theme-border-soft); border-radius: 0; background: transparent; font-size: calc(9px * var(--ui-font-scale)); }
@@ -50,28 +17,7 @@
   --ui-text-size: calc(9.8px * var(--ui-font-scale));
   --ui-meta-size: calc(9px * var(--ui-font-scale));
 }
-
 /* Activity rails keep icon optics separate from the clickable target. */
-.workspace-main-row > .agent-activity-bar {
-  width: 46px;
-  flex-basis: 46px;
-  padding: 6px 3px;
-  gap: 4px;
-}
-.workspace-main-row > .agent-activity-bar button {
-  width: 40px;
-  height: 38px;
-  border-radius: var(--radius-control);
-  color: color-mix(in srgb, var(--theme-text) 48%, transparent);
-}
-.workspace-main-row > .agent-activity-bar button > svg { width: 20px; height: 20px; stroke-width: 1.8; }
-.workspace-main-row > .agent-activity-bar button:hover:not(:disabled) { color: color-mix(in srgb, var(--theme-text) 75%, transparent); }
-.workspace-main-row > .agent-activity-bar button.active:not(:disabled) { color: color-mix(in srgb, var(--theme-text) 94%, transparent); }
-.workspace-main-row > .agent-activity-bar button::before { width: 2px; left: -3px; top: 7px; bottom: 7px; }
-.workspace-main-row > .workspace-side-rail .workspace-rail-pinned button > svg { width: 20px; height: 20px; stroke-width: 1.8; }
-.workspace-main-row > .workspace-side-rail button[data-pinned='true']:not(.active)::after { display: none; }
-.workspace-main-row > .workspace-side-rail .workspace-rail-pinned { gap: 5px; }
-.workspace-main-row > .workspace-side-rail .workspace-rail-pin-target { opacity: 0; }
 
 /* Tool-window titles and icon hit areas share a predictable optical scale. */
 .workspace-side-drawer .agent-drawer-heading strong { font-size: var(--panel-title-size); font-weight: 650; }

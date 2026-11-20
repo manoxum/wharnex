@@ -21,7 +21,7 @@ describe('UI preferences', () => {
     const saved = saveUIPreferences({ uiFont: 'humanist', monoFont: 'fira', scale: 2, theme: 'dark', contentScheme: 'light', density: 'compact', errorPopups: false })
     expect(DEFAULT_UI_PREFERENCES.scale).toBe(1)
     expect(saved.scale).toBe(1.6)
-    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('2.112')
+    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('1.92')
     expect(document.documentElement.style.getPropertyValue('--ui-font-family')).toContain('Aptos')
     expect(document.documentElement.style.getPropertyValue('--mono-font-family')).toContain('Fira Code')
     expect(document.documentElement.dataset.theme).toBe('dark')
@@ -41,7 +41,7 @@ describe('UI preferences', () => {
   it('keeps 100% centered while allowing a 60% reduction from the baseline', () => {
     const saved = saveUIPreferences({ uiFont: 'elegant', monoFont: 'jetbrains', scale: 0, theme: 'original', errorPopups: true })
     expect(saved.scale).toBe(0.4)
-    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('0.528')
+    expect(document.documentElement.style.getPropertyValue('--ui-font-scale')).toBe('0.48')
   })
 
   it('gives code and terminal surfaces readable scale-aware base sizes', () => {

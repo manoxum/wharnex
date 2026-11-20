@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { OperationalTab } from './useOperationalTab'
 
 function rememberedExpansion(projectPath: string) {
@@ -11,6 +11,8 @@ export function useUtilityPanel({ projectPath, visible, tab, problemCount, heigh
 }) {
   const root = useRef<HTMLElement>(null)
   const finishDrag = useRef<(() => void) | undefined>(undefined)
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
   const [manual, setManual] = useState(() => rememberedExpansion(projectPath))
   const [maximized, setMaximized] = useState(false)
   const [available, setAvailable] = useState(() => window.innerHeight - 96)
@@ -28,13 +30,13 @@ export function useUtilityPanel({ projectPath, visible, tab, problemCount, heigh
   const maximum = Math.min(720, Math.max(96, available - Math.min(240, Math.round(available * 0.55))))
   const minimum = Math.min(185, maximum)
   const expanded = visible && (tab !== 'problems' || manual || problemCount !== null && problemCount > 0)
-  const panelHeight = expanded ? (maximized ? Math.max(96, available - 64) : Math.min(maximum, Math.max(minimum, height))) : 40
+  const panelHeight = expanded ? (maximized ? Math.max(96, available - 64) : Math.min(maximum, Math.max(minimum, height))) : 0
 
-  function remember(value: boolean) {
+  const remember = useCallback((value: boolean) => {
     setManual(value)
     try { localStorage.setItem(`wharnex.workbench.bottom-expanded.v1:${projectPath}`, String(value)) } catch { /* best effort */ }
-  }
-  function expand() { remember(true); onOpen() }
+  }, [projectPath])
+  const expand = useCallback(() => { remember(true); onOpenRef.current() }, [remember])
   function collapse() { remember(false); setMaximized(false); onClose() }
   function resize(next: number) { remember(true); setMaximized(false); onHeight(Math.round(Math.max(minimum, Math.min(maximum, next)))) }
   function beginResize(event: PointerEvent<HTMLElement>) {

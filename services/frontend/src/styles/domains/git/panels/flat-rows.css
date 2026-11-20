@@ -1,6 +1,6 @@
 /* Git: tabs and rows carry hierarchy; container chrome stays secondary. */
 
-.git-tab-content { padding: 0 14px 16px; gap: 0; }
+.git-tab-content { gap: 0; }
 .git-section,
 .git-worktree-card,
 .git-branch-hero {

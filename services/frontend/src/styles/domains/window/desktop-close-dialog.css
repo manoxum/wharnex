@@ -1,61 +1,8 @@
-.desktop-close-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100000;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: color-mix(in srgb, #05070a 62%, transparent);
-  backdrop-filter: blur(10px) saturate(.85);
-  -webkit-app-region: no-drag;
-}
 
-.desktop-close-dialog {
-  box-sizing: border-box;
-  width: min(680px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
-  overflow: auto;
-  padding: 22px;
-  border: 1px solid color-mix(in srgb, var(--theme-border) 86%, var(--theme-accent));
-  border-radius: 20px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--theme-elevated) 96%, var(--theme-accent-soft)), var(--theme-elevated) 58%);
-  color: var(--theme-text);
-  box-shadow: 0 34px 90px color-mix(in srgb, var(--theme-shadow) 88%, #000);
-}
-
-.desktop-close-heading { display: grid; grid-template-columns: 46px minmax(0,1fr) 34px; align-items: start; gap: 13px; }
-.desktop-close-symbol { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--theme-accent) 40%, var(--theme-border)); border-radius: 14px; background: var(--theme-accent-soft); color: var(--theme-accent); }
-.desktop-close-kicker { display: block; margin: 1px 0 5px; color: var(--theme-accent); font: 700 calc(7px * var(--ui-font-scale))/1.2 var(--mono-font-family); letter-spacing: .11em; text-transform: uppercase; }
-.desktop-close-heading h2 { margin: 0; font-size: calc(14px * var(--ui-font-scale)); line-height: 1.25; letter-spacing: -.02em; }
-.desktop-close-dismiss { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--theme-text-muted); cursor: pointer; }
-.desktop-close-dismiss:hover:not(:disabled) { border-color: var(--theme-border-soft); background: var(--theme-hover); color: var(--theme-text); }
-.desktop-close-description { margin: 15px 0 17px 59px; max-width: 535px; color: var(--theme-text-muted); font-size: calc(8.2px * var(--ui-font-scale)); line-height: 1.55; }
-.desktop-close-options { display: grid; gap: 9px; }
-.desktop-close-option { width: 100%; min-height: 72px; padding: 11px 13px; display: grid; grid-template-columns: 38px minmax(0,1fr) auto; align-items: center; gap: 12px; border: 1px solid var(--theme-border-soft); border-radius: 13px; background: color-mix(in srgb, var(--theme-surface) 92%, var(--theme-bg)); color: var(--theme-text); text-align: left; cursor: pointer; transition: transform .14s ease, border-color .14s ease, background .14s ease, box-shadow .14s ease; }
-.desktop-close-option:hover:not(:disabled), .desktop-close-option:focus-visible { transform: translateY(-1px); border-color: color-mix(in srgb, var(--theme-accent) 43%, var(--theme-border)); background: color-mix(in srgb, var(--theme-accent-soft) 44%, var(--theme-surface)); box-shadow: 0 8px 24px color-mix(in srgb, var(--theme-shadow) 38%, transparent); outline: none; }
-.desktop-close-option.recommended { border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border)); }
-.desktop-close-option.danger:hover:not(:disabled), .desktop-close-option.danger:focus-visible { border-color: color-mix(in srgb, var(--theme-danger, #d66b62) 48%, var(--theme-border)); background: color-mix(in srgb, var(--theme-danger, #d66b62) 9%, var(--theme-surface)); }
-.desktop-close-option-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: var(--theme-muted); color: var(--theme-text-soft); }
-.desktop-close-option.recommended .desktop-close-option-icon { background: var(--theme-accent-soft); color: var(--theme-accent); }
-.desktop-close-option.danger .desktop-close-option-icon { background: color-mix(in srgb, var(--theme-danger, #d66b62) 12%, var(--theme-muted)); color: var(--theme-danger, #d66b62); }
-.desktop-close-option > span:nth-child(2) { min-width: 0; display: grid; gap: 4px; }
-.desktop-close-option strong { font-size: calc(8.8px * var(--ui-font-scale)); font-weight: 720; }
-.desktop-close-option small { color: var(--theme-text-muted); font-size: calc(7.4px * var(--ui-font-scale)); line-height: 1.4; }
-.desktop-close-option em { padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--theme-accent) 30%, var(--theme-border)); border-radius: 999px; background: var(--theme-accent-soft); color: var(--theme-accent); font: 700 calc(6.5px * var(--ui-font-scale))/1 var(--mono-font-family); font-style: normal; text-transform: uppercase; }
-.desktop-close-error { margin: 11px 0 0; padding: 8px 10px; display: flex; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--theme-danger, #d66b62) 38%, var(--theme-border)); border-radius: 9px; background: color-mix(in srgb, var(--theme-danger, #d66b62) 9%, var(--theme-surface)); color: var(--theme-danger, #d66b62); font-size: calc(7.5px * var(--ui-font-scale)); }
-.desktop-close-dialog footer { margin-top: 15px; padding-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid var(--theme-border-soft); }
-.desktop-close-dialog footer span { display: inline-flex; align-items: center; gap: 6px; color: var(--theme-text-muted); font-size: calc(7.1px * var(--ui-font-scale)); }
-.desktop-close-dialog footer button { min-height: 30px; padding: 0 12px; border: 1px solid var(--theme-border); border-radius: 9px; background: var(--theme-surface); color: var(--theme-text-soft); font-size: calc(7.5px * var(--ui-font-scale)); font-weight: 650; cursor: pointer; }
-.desktop-close-dialog footer button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--theme-accent) 32%, var(--theme-border)); background: var(--theme-hover); color: var(--theme-text); }
-.desktop-close-dialog button:disabled { cursor: wait; opacity: .58; }
 
 @media (max-width: 620px) {
-  .desktop-close-backdrop { padding: 12px; align-items: end; }
-  .desktop-close-dialog { width: 100%; max-height: calc(100vh - 24px); padding: 17px; border-radius: 18px; }
-  .desktop-close-description { margin-left: 0; }
-  .desktop-close-option { grid-template-columns: 34px minmax(0,1fr); }
-  .desktop-close-option > svg, .desktop-close-option em { display: none; }
-  .desktop-close-dialog footer { align-items: flex-end; }
+
 }
 
-@media (prefers-reduced-motion: reduce) { .desktop-close-option { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+ }

@@ -24,3 +24,10 @@ describe('settings administration frame', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 })
+
+it('keeps destructive-operation scope visible while omitting routine footer prose', () => {
+  const view = render(<SettingsFrame section="data" onSection={vi.fn()} onClose={vi.fn()}>Data</SettingsFrame>)
+  expect(screen.getByRole('note').textContent).toContain('Os ficheiros dos projetos reais não são removidos')
+  view.rerender(<SettingsFrame section="appearance" onSection={vi.fn()} onClose={vi.fn()}>Appearance</SettingsFrame>)
+  expect(screen.queryByRole('note')).toBeNull()
+})

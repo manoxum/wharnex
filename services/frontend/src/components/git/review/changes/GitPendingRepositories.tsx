@@ -17,12 +17,12 @@ export function GitPendingRepositories({ session, entries, disabled, repositoryT
   runForRepositories: (paths: string[], action: (entry: Entry) => Promise<string>) => Promise<string>
   conflictMessage: (id: string, message: string) => Promise<string>
 }) {
-  return <>{entries.map((entry) => {
+  return <div className={`flex min-h-0 min-w-0 flex-1 flex-col gap-2 ${entries.length === 1 ? 'overflow-hidden' : 'overflow-y-auto'}`}>{entries.map((entry) => {
     const entryOverview = entry.overview!
     const entryBranch = currentBranch(entryOverview)
     return <GitUnpushedSection key={entry.repository.path || '__root__'}
       sessionId={session.id} repository={entry.repository.path} repositoryLabel={entries.length > 1 ? repositoryLabel(entry) : undefined}
-      activeBranch={entryBranch} remotes={entryOverview.remotes} disabled={disabled}
+      activeBranch={entryBranch} remotes={entryOverview.remotes} disabled={disabled} fillContainer={entries.length === 1}
       onFullPush={async (remote, branch, setUpstream) => {
         const target = repositoryTargets.filter((item) => item.path === entry.repository.path)
         selectRepositories(
@@ -63,5 +63,5 @@ export function GitPendingRepositories({ session, entries, disabled, repositoryT
         )
       }}
     />
-          })}</>
+          })}</div>
 }

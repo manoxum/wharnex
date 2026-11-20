@@ -26,7 +26,7 @@ describe('AgentRuntimeDetails', () => {
     const { container } = render(<AgentRuntimeDetails agent={agent()} projectPath="/projects/beta" projectName="alpha" foreignProject="/projects/alpha" projectId="/projects/alpha" taskIsCurrent stateLabel="Ocupado noutro projeto"/> )
     const note = screen.getByRole('status')
     expect(note.textContent).toContain('Ocupado com uma tarefa do projeto alpha')
-    expect(note.className).toContain('text-[calc(13px*var(--ui-font-scale))]')
+    expect(note.className).toContain('text-[calc(10.5px*var(--ui-font-scale))]')
     expect(note.className).not.toContain('agent-runtime-foreign-note')
     expect(container.querySelector('details')).toBeNull()
   })

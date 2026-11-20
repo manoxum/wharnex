@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { IconButton } from '../../presentation/workbench'
 import { WorkbenchTabs } from '../../presentation/tabs'
 
@@ -11,6 +12,6 @@ export function OrchestratorHeader({ section, count, busy, onSection, onRefresh 
       { id: 'overview', label: 'Overview', icon: 'plan' },
       { id: 'tasks', label: 'Tasks', icon: 'list', badge: count },
     ]}/>
-    <IconButton className="!ml-auto" label="Atualizar Orchestrator" icon="refresh" disabled={busy} onClick={onRefresh}/>
+    <IconButton className="!ml-auto" label={uiText("Atualizar Orchestrator")} icon="refresh" disabled={busy} onClick={onRefresh}/>
   </header>
 }

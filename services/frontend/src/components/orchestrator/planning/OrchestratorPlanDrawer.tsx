@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { OrchestratorPlanTabs, type DetailTab } from './OrchestratorPlanTabs'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { taskBrowserAgentId, resolveTaskChatId, type ChatAgentTaskChatRef } from '../../../lib/chat/transport/chatAgentTaskNav'
@@ -65,42 +66,42 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
           <strong id="orchestrator-plan-detail-title" className="truncate text-lg">{detail?.plan?.title || request.objective || 'Detalhe do planeamento'}</strong>
           <span className="mt-1 flex flex-wrap items-center gap-2">
             <OrchestratorPhaseBadge phase={request.phase}/>
-            <span className="text-sm text-[var(--theme-text-muted)]">Tentativa {detail?.attempt ?? request.attempt}/{detail?.max_attempts ?? request.max_attempts}</span>
+            <span className="text-sm text-[var(--theme-text-muted)]">{uiText("Tentativa")}{' '}{detail?.attempt ?? request.attempt}/{detail?.max_attempts ?? request.max_attempts}</span>
           </span>
-          <span className="text-sm text-[var(--theme-text-soft)]">Estado técnico do pedido: <code className="font-mono">{requestStatus}</code></span>
-          <span className="text-sm text-[var(--theme-text-soft)]">Criado {formatDate(request.created_at)} · Atualizado {formatDate(request.updated_at)}</span>
+          <span className="text-sm text-[var(--theme-text-soft)]">{uiText("Estado técnico do pedido:")}{' '}<code className="font-mono">{requestStatus}</code></span>
+          <span className="text-sm text-[var(--theme-text-soft)]">{uiText("Criado")}{' '}{formatDate(request.created_at)} {' '}{uiText("· Atualizado")}{' '}{formatDate(request.updated_at)}</span>
           {detail?.plan ? <span className="truncate text-sm text-[var(--theme-text-soft)]"><span className="font-mono">{detail.plan.id}</span> · {detail.plan.title}</span> : null}
         </div>
         <span className="flex items-center gap-1">
-          <button className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)]" type="button" disabled={loading || busy} onClick={onRefresh} aria-label="Atualizar detalhe do planeamento" title="Atualizar"><Icon name="refresh" size={15}/></button>
-          <button ref={closeButtonRef} className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)]" type="button" onClick={onClose} aria-label="Fechar detalhe do planeamento" title="Fechar"><Icon name="close" size={16}/></button>
+          <button className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)]" type="button" disabled={loading || busy} onClick={onRefresh} aria-label={uiText("Atualizar detalhe do planeamento")} title={uiText("Atualizar")}><Icon name="refresh" size={15}/></button>
+          <button ref={closeButtonRef} className="grid h-[30px] w-[30px] place-items-center rounded-md border-0 bg-transparent text-[var(--theme-text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-accent)]" type="button" onClick={onClose} aria-label={uiText("Fechar detalhe do planeamento")} title={uiText("Fechar")}><Icon name="close" size={16}/></button>
         </span>
       </header>
 
       <div className="min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4" data-testid="orchestrator-plan-detail-scroll">
-        <section className="mb-3 rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-3" aria-label="Ações do planeamento">
+        <section className="mb-3 rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] p-3" aria-label={uiText("Ações do planeamento")}>
           <div className="flex flex-wrap gap-2">
-            <button className={actionClass} type="button" onClick={() => void copyIdentifier(request.request_id)}><Icon name="copy" size={13}/> Copiar request_id</button>
-            {planID ? <button className={actionClass} type="button" onClick={() => void copyIdentifier(planID)}><Icon name="copy" size={13}/> Copiar plan_id</button> : null}
+            <button className={actionClass} type="button" onClick={() => void copyIdentifier(request.request_id)}><Icon name="copy" size={13}/> {' '}{uiText("Copiar request_id")}</button>
+            {planID ? <button className={actionClass} type="button" onClick={() => void copyIdentifier(planID)}><Icon name="copy" size={13}/> {' '}{uiText("Copiar plan_id")}</button> : null}
             {resolvedChatID && onGoToChat ? <button className={actionClass} type="button" onClick={() => onGoToChat(resolvedChatID, planningTask?.session_id)}><Icon name="bridge" size={13}/> Abrir chat</button> : null}
-            {planID && onOpenTasks ? <button className={actionClass} type="button" onClick={() => onOpenTasks(planID)}>Ver tasks</button> : null}
-            {canRetry && onRetry ? <button className={actionClass} type="button" disabled={busy} onClick={onRetry}><Icon name="refresh" size={13}/> Retentar planeamento</button> : null}
+            {planID && onOpenTasks ? <button className={actionClass} type="button" onClick={() => onOpenTasks(planID)}>{uiText("Ver tasks")}</button> : null}
+            {canRetry && onRetry ? <button className={actionClass} type="button" disabled={busy} onClick={onRetry}><Icon name="refresh" size={13}/> {' '}{uiText("Retentar planeamento")}</button> : null}
           </div>
           {canDecideDraft && planID ? <div className="mt-2 flex flex-wrap gap-2 border-t border-[var(--theme-border-soft)] pt-2">
-            {onReject ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-danger)]" type="button" disabled={busy} onClick={() => onReject(planID)}><Icon name="close" size={13}/> Recusar plano</button> : null}
-            {onRevise ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onRevise(planID)}><Icon name="refresh" size={13}/> Pedir alteração</button> : null}
-            {onApprove ? <button className="primary rounded-md px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onApprove(planID)}><Icon name="check" size={13}/> Aprovar plano</button> : null}
+            {onReject ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-danger)]" type="button" disabled={busy} onClick={() => onReject(planID)}><Icon name="close" size={13}/> {' '}{uiText("Recusar plano")}</button> : null}
+            {onRevise ? <button className="rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onRevise(planID)}><Icon name="refresh" size={13}/> {' '}{uiText("Pedir alteração")}</button> : null}
+            {onApprove ? <button className="primary rounded-md px-2.5 py-1.5 text-sm font-semibold" type="button" disabled={busy} onClick={() => onApprove(planID)}><Icon name="check" size={13}/> {' '}{uiText("Aprovar plano")}</button> : null}
           </div> : null}
         </section>
 
         <OrchestratorPlanTabs value={tab} onChange={setTab}/>
 
         {loading && !detail ? <StateMessage kind="loading" message="A carregar detalhe do pedido…"/> : null}
-        {loading && detail ? <p className="mt-3 text-sm text-[var(--theme-text-muted)]" role="status">A atualizar detalhe…</p> : null}
+        {loading && detail ? <p className="mt-3 text-sm text-[var(--theme-text-muted)]" role="status">{uiText("A atualizar detalhe…")}</p> : null}
         {error ? <div className="mt-3 rounded-lg border border-[var(--theme-danger)] p-3" role="alert">
-          <strong className="text-base">Não foi possível carregar o detalhe.</strong>
+          <strong className="text-base">{uiText("Não foi possível carregar o detalhe.")}</strong>
           <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">{error}</p>
-          <button className="mt-2 text-sm font-semibold" type="button" onClick={onRefresh}>Tentar novamente</button>
+          <button className="mt-2 text-sm font-semibold" type="button" onClick={onRefresh}>{uiText("Tentar novamente")}</button>
         </div> : null}
 
         {tab === 'engine' ? <div className="mt-3 h-[clamp(320px,62vh,680px)] min-h-0 overflow-hidden rounded-xl border border-[var(--theme-border-soft)] bg-[var(--theme-surface)]" role="tabpanel" data-testid="orchestrator-plan-engine">
@@ -121,8 +122,8 @@ export function OrchestratorPlanDrawer({ request, detail, planningTask, sessionI
 function PlanEngineTab({ workerID, onStop }: { workerID?: string; onStop: () => void }) {
   if (!workerID) return <div className="grid h-full min-h-0 place-items-center p-6 text-center">
     <div className="grid max-w-sm gap-1">
-      <strong className="text-base">Nenhum Worker associado ao planeamento</strong>
-      <p className="m-0 text-sm text-[var(--theme-text-muted)]">Quando o pedido de planeamento tiver um Worker ativo, a instância aparece aqui automaticamente.</p>
+      <strong className="text-base">{uiText("Nenhum Worker associado ao planeamento")}</strong>
+      <p className="m-0 text-sm text-[var(--theme-text-muted)]">{uiText("Quando o pedido de planeamento tiver um Worker ativo, a instância aparece aqui automaticamente.")}</p>
     </div>
   </div>
   return <WorkerFollowViewer agentId={workerID} onStop={onStop}/>
@@ -139,7 +140,7 @@ function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest;
   return <div className="grid gap-3">
     <OrchestratorPlanProgressSummary detail={detail} phase={request.phase}/>
     <section className={cardClass}>
-      <strong className="text-base">Objetivo</strong>
+      <strong className="text-base">{uiText("Objetivo")}</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{objective || 'Sem objetivo registrado.'}</p>
     </section>
     {detail.prompt ? <section className={cardClass}>
@@ -147,11 +148,11 @@ function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest;
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-text-muted)]">{detail.prompt}</p>
     </section> : null}
     <section className={cardClass}>
-      <strong className="text-base">Contexto do pedido</strong>
-      <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">{detail.include_context ? 'Contexto do projeto incluído.' : 'Contexto completo do projeto não incluído.'}</p>
+      <strong className="text-base">{uiText("Contexto do pedido")}</strong>
+      <p className="mb-0 mt-1 text-sm text-[var(--theme-text-muted)]">{detail.include_context ? uiText("Contexto do projeto incluído.") : uiText("Contexto completo do projeto não incluído.")}</p>
     </section>
     {(detail.last_error || request.last_error) ? <section className={cardClass}>
-      <strong className="text-base">Último erro</strong>
+      <strong className="text-base">{uiText("Último erro")}</strong>
       <p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-danger)]">{detail.last_error || request.last_error}</p>
     </section> : null}
   </div>
@@ -160,7 +161,7 @@ function SummaryTab({ request, detail }: { request: OrchestratorPlanningRequest;
 function TasksTab({ detail }: { detail: OrchestratorPlanningDetail }) {
   const count = detail.tasks.length
   if (!count) return <StateMessage kind="empty" message="Nenhuma task foi criada para este plano."/>
-  return <StateMessage kind="info" message={`${count} task${count === 1 ? '' : 's'} ${count === 1 ? 'disponível' : 'disponíveis'} para este plano.`}/>
+  return <StateMessage kind="info" message={`${count} task${count === 1 ? '' : 's'} ${count === 1 ? uiText("disponível") : uiText("disponíveis")} para este plano.`}/>
 }
 
 

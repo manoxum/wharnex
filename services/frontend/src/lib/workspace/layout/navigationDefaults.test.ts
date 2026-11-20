@@ -6,9 +6,11 @@ describe('workbench navigation defaults and compatibility', () => {
   it('starts with every tool on one grouped launcher and a contextual right side', () => {
     const layout = loadWorkspaceRailLayout()
     expect(layout).toEqual(WORKBENCH_NAVIGATION_LAYOUT)
-    expect(layout.left.slice(0, 3)).toEqual(['project', 'git', 'errors'])
+    expect(layout.left.slice(0, 3)).toEqual(['project', 'git', 'problems'])
     expect(layout.right).toEqual([])
-    expect(new Set([...layout.left, ...layout.pinned.left]).size).toBe(15)
+    expect(layout.left).toContain('output')
+    expect(layout.left).toContain('errors')
+    expect(new Set([...layout.left, ...layout.pinned.left]).size).toBe(17)
   })
   it('preserves the full previous v9 layout, user order, cross-side placement and pinning', () => {
     const previous = moveWorkspaceTool(DEFAULT_WORKSPACE_RAIL_LAYOUT, 'knowledge', 'right', undefined, true)

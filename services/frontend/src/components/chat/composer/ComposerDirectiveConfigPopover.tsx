@@ -1,3 +1,4 @@
+import { translate as uiText, formatMessage } from '../../../lib/workspace/localization'
 import { useEffect, useRef, useState } from 'react'
 import { directiveKindLabel, type ComposerDirective } from '../../../lib/chat/composer/composerDirectives'
 import { Icon } from '../../presentation/chrome/Icon'
@@ -62,27 +63,27 @@ export function ComposerDirectiveConfigPopover({ directive, anchor, referenceAtt
 
   return <div
     ref={popoverRef} className="composer-directive-popover"
-    style={style} role="dialog" aria-label={`Configurar ${directiveKindLabel(directive.kind)}`}
+    style={style} role="dialog" aria-label={formatMessage('Configurar {kind}', { kind: uiText(directiveKindLabel(directive.kind)) })}
   >
     <header>
-      <strong>{directiveKindLabel(directive.kind)}</strong>
-      <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label="Fechar"><Icon name="close" size={12}/></button>
+      <strong>{uiText(directiveKindLabel(directive.kind))}</strong>
+      <button type="button" className="agent-drawer-icon" onClick={onClose} aria-label={uiText("Fechar")}><Icon name="close" size={12}/></button>
     </header>
     <div className="composer-directive-popover-body">
       {directive.kind === 'ref'
         ? <>
           <span>{directive.project}{directive.path ? `/${directive.path}` : ''}</span>
-          <span>{referenceAttached?.(directive.project) === false ? 'Ainda não anexado — será trazido ao contexto ao enviar' : 'Contexto já anexado'}</span>
+          <span>{referenceAttached?.(directive.project) === false ? uiText("Ainda não anexado — será trazido ao contexto ao enviar") : uiText("Contexto já anexado")}</span>
         </>
         : <span>{directive.path || directive.value}</span>}
-      {directive.kind === 'attach' && <span>{rules?.autoExclude === false ? 'Reconhecimento automático desligado' : 'Reconhecimento automático ligado'}{ruleCount ? ` · ${ruleCount} regra(s)` : ''}</span>}
-      {directive.kind === 'see' && <span>{seeFound === false ? 'Referência não encontrada — foi removida?' : 'Referência disponível para destaque'}</span>}
+      {directive.kind === 'attach' && <span>{rules?.autoExclude === false ? uiText("Reconhecimento automático desligado") : uiText("Reconhecimento automático ligado")}{ruleCount ? formatMessage(' · {count} regra(s)', { count: ruleCount }) : ''}</span>}
+      {directive.kind === 'see' && <span>{seeFound === false ? uiText("Referência não encontrada — foi removida?") : uiText("Referência disponível para destaque")}</span>}
     </div>
     <div className="composer-directive-popover-actions">
       <button type="button" onClick={() => { onEdit(directive); onClose() }}>
-        <Icon name={directive.kind === 'attach' ? 'folder' : 'edit'} size={12}/> {directive.kind === 'attach' ? 'Configurar conteúdo…' : 'Editar'}
+        <Icon name={directive.kind === 'attach' ? 'folder' : 'edit'} size={12}/> {directive.kind === 'attach' ? uiText("Configurar conteúdo…") : uiText("Editar")}
       </button>
-      <button type="button" className="danger" onClick={() => { onRemove(directive); onClose() }}><Icon name="trash" size={12}/> Remover</button>
+      <button type="button" className="danger" onClick={() => { onRemove(directive); onClose() }}><Icon name="trash" size={12}/> {' '}{uiText("Remover")}</button>
     </div>
   </div>
 }

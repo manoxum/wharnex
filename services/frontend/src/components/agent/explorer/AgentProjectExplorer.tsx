@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { api, APIError } from '../../../lib/transport/http/api'
+import { translate as uiText, formatMessage } from '../../../lib/workspace/localization'
 import { useGitLiveRefresh } from '../../../lib/git/workflow/useGitLiveRefresh'
 import { confirmDialog, promptDialog } from '../../../lib/desktop/bridge/appDialog'
 import type { FileEntry, GitFileDiff, GitWorkingFile, Session } from '../../../types'
-import { FileGlyph } from '../../editor/canvas/FileGlyph'
+import { ContextMenu as WorkbenchContextMenu } from '../../presentation/menus'
 import { Icon } from '../../presentation/chrome/Icon'
 import { ChangeDiffEditor } from '../../editor/canvas/ChangeDiffEditor'
 import { ProjectExplorerHeader } from './ProjectExplorerHeader'
@@ -70,12 +71,7 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
       row?.focus({ preventScroll: true })
     }))
   }, [tree, revealNonce, revealPath])
-  useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(undefined)
-    window.addEventListener('pointerdown', close)
-    return () => window.removeEventListener('pointerdown', close)
-  }, [menu])
+  const dismissMenu = useCallback(() => setMenu(undefined), [])
 
   function toggle(path: string) {
     setFocusedPath(path)
@@ -94,12 +90,12 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
   async function create(kind: 'file' | 'directory') {
     const isFile = kind === 'file'
     const clean = await promptDialog({
-      title: isFile ? 'Criar ficheiro' : 'Criar pasta',
-      message: `O novo ${isFile ? 'ficheiro' : 'diretório'} será criado dentro de ${parentForCreate() || 'raiz do projeto'}.`,
-      inputLabel: isFile ? 'Nome do ficheiro' : 'Nome da pasta',
+      title: uiText(isFile ? 'Criar ficheiro' : 'Criar pasta'),
+      message: formatMessage(isFile ? 'O novo ficheiro será criado dentro de {path}.' : 'A nova pasta será criada dentro de {path}.', { path: parentForCreate() || uiText('raiz do projeto') }),
+      inputLabel: uiText(isFile ? 'Nome do ficheiro' : 'Nome da pasta'),
       placeholder: isFile ? 'exemplo.ts' : 'nova-pasta',
-      confirmLabel: 'Criar',
-      validate: validateLeafName,
+      confirmLabel: uiText('Criar'),
+      validate: (value) => { const error = validateLeafName(value); return error ? uiText(error) : undefined },
     })
     if (!clean) return
     const parent = parentForCreate()
@@ -117,12 +113,12 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
   async function rename(node = focused) {
     if (!node) return
     const clean = await promptDialog({
-      title: node.kind === 'file' ? 'Renomear ficheiro' : 'Renomear pasta',
-      message: `O caminho atual é “${node.path}”. Rascunhos abertos no Editor serão preservados com o novo caminho.`,
-      inputLabel: 'Novo nome',
+      title: uiText(node.kind === 'file' ? 'Renomear ficheiro' : 'Renomear pasta'),
+      message: formatMessage('O caminho atual é “{path}”. Rascunhos abertos no Editor serão preservados com o novo caminho.', { path: node.path }),
+      inputLabel: uiText('Novo nome'),
       initialValue: node.name,
-      confirmLabel: 'Renomear',
-      validate: validateLeafName,
+      confirmLabel: uiText('Renomear'),
+      validate: (value) => { const error = validateLeafName(value); return error ? uiText(error) : undefined },
     })
     if (!clean || clean === node.name) return
     const parent = parentPath(node.path)
@@ -138,12 +134,12 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
 
   async function remove(node = focused) {
     if (!node) return
-    const detail = node.kind === 'directory' ? 'A pasta e todo o conteúdo serão removidos.' : 'O ficheiro será removido.'
+    const detail = uiText(node.kind === 'directory' ? 'A pasta e todo o conteúdo serão removidos.' : 'O ficheiro será removido.')
     if (!(await confirmDialog({
-      title: node.kind === 'directory' ? 'Eliminar pasta?' : 'Eliminar ficheiro?',
-      message: `“${node.path}” será removido. ${detail} Tabs abertas nesse caminho também serão fechadas.`,
+      title: uiText(node.kind === 'directory' ? 'Eliminar pasta?' : 'Eliminar ficheiro?'),
+      message: formatMessage('“{path}” será removido. {detail} Separadores abertos neste caminho também serão fechados.', { path: node.path, detail }),
       tone: 'danger',
-      confirmLabel: 'Eliminar',
+      confirmLabel: uiText('Eliminar'),
     }))) return
     try {
       await api.deleteWorkspacePath(session.id, node.path)
@@ -171,26 +167,27 @@ export function AgentProjectExplorer({ session, onOpen, onError, onClose, reveal
     setMenu({ x: event.clientX, y: event.clientY, node })
   }
 
-  return <section className="agent-project-explorer flex h-full min-h-0 flex-col bg-whx-bg text-whx-soft" aria-label="Explorador do projeto">
+  return <section className="agent-project-explorer flex h-full min-h-0 flex-col bg-whx-bg text-whx-soft" aria-label={uiText('Explorador do projeto')}>
     <ProjectExplorerHeader projectPath={session.project_path} expanded={Boolean(expanded.size)} loading={loading} onCreateFile={() => void create('file')} onCreateFolder={() => void create('directory')} onCollapse={() => setExpanded(new Set())} onRefresh={() => void refresh()} onClose={onClose}/>
-    {gitFiles.length ? <div className="flex min-h-[30px] shrink-0 items-center gap-2 border-b border-whx-border-soft px-3 text-[calc(10px*var(--ui-font-scale))] text-whx-faint" role="group" aria-label="Resumo das alterações Git" title={`${gitFiles.length} ficheiros alterados`}><span className="inline-flex items-center gap-1.5 text-whx-soft"><Icon name="git" size={13}/><strong className="font-mono text-[calc(10px*var(--ui-font-scale))]">{gitFiles.length}<span className="sr-only"> alterados</span></strong></span><span className="font-mono text-[calc(9px*var(--ui-font-scale))] text-whx-success">+{gitTotals.additions}</span><span className="font-mono text-[calc(9px*var(--ui-font-scale))] text-whx-danger">−{gitTotals.deletions}</span></div> : null}
+    <div className="flex h-7 shrink-0 items-center gap-3 border-b border-whx-border-soft px-3 text-[calc(10px*var(--ui-font-scale))] text-whx-faint">
+      <span className="inline-flex items-center gap-1.5" title={uiText('Ficheiros visíveis no projeto')}><Icon name="file" size={12}/>{entries.filter((entry) => entry.kind === 'file').length}</span>
+      <span className="ml-auto inline-flex items-center gap-1.5" role="group" aria-label={uiText('Resumo das alterações Git')} title={formatMessage('{count} ficheiros alterados', { count: gitFiles.length })}><Icon name="git" size={12}/><strong className="font-mono font-medium text-whx-soft">{gitFiles.length}<span className="sr-only"> alterados</span></strong>{gitFiles.length > 0 && <><span className="font-mono text-whx-success">+{gitTotals.additions}</span><span className="font-mono text-whx-danger">−{gitTotals.deletions}</span></>}</span>
+    </div>
     <ProjectExplorerTree tree={tree} hiddenGitFiles={hiddenGitFiles} expanded={expanded} focusedPath={focusedPath} gitByPath={gitByPath} gitDirectoryCounts={gitDirectoryCounts} loading={loading} gitDiffLoadingPath={gitDiffLoadingPath} treeRef={treeRef} onKeyDown={(event) => {
       if (event.key === 'F2' && focused) { event.preventDefault(); void rename() }
       if (event.key === 'Delete' && focused) { event.preventDefault(); void remove() }
     }} onToggle={toggle} onOpen={onOpen} onFocus={setFocusedPath} onContextMenu={contextMenu} onOpenGitDiff={(path) => void openGitDiff(path)}/>
-    <footer className="flex min-h-[30px] shrink-0 items-center justify-between gap-2 border-t border-whx-border-soft bg-whx-surface px-3 text-[calc(9px*var(--ui-font-scale))] text-whx-faint"><span className="inline-flex items-center gap-1.5" role="group" aria-label={`${entries.filter((entry) => entry.kind === 'file').length} ficheiros no projeto`} title="Ficheiros no projeto"><Icon name="file" size={12}/>{entries.filter((entry) => entry.kind === 'file').length}</span><span className="inline-flex items-center gap-1.5" role="group" aria-label={gitFiles.length ? `${gitFiles.length} ficheiros com alterações Git` : 'Git limpo'} title={gitFiles.length ? 'Ficheiros com alterações Git' : 'Git limpo'}><Icon name="git" size={12}/>{gitFiles.length || 'OK'}</span></footer>
-    {menu && <div className="explorer-context-menu agent-explorer-context-menu" style={{ left: menu.x, top: menu.y }} onPointerDown={(event) => event.stopPropagation()}>
-      {menu.node.kind === 'file' && <button type="button" onClick={() => { onOpen(menu.node.path); setMenu(undefined) }}><FileGlyph path={menu.node.path}/> Abrir no Editor</button>}
-      {canOpenGitDiff(gitByPath.get(menu.node.path)) && <button type="button" onClick={() => { void openGitDiff(menu.node.path); setMenu(undefined) }}><Icon name="git" size={13}/> Ver alterações Git</button>}
-      <button type="button" onClick={() => { void copyPath(menu.node); setMenu(undefined) }}><Icon name="copy" size={13}/> Copiar caminho</button>
-      <button type="button" onClick={() => { void rename(menu.node); setMenu(undefined) }}><Icon name="rename" size={13}/> Renomear</button>
-      <div className="menu-separator"/>
-      <button type="button" className="danger" onClick={() => { void remove(menu.node); setMenu(undefined) }}><Icon name="trash" size={13}/> Eliminar</button>
-    </div>}
-    {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}><section className="diff-inspector editor-git-diff"><header><div><strong>{gitDiff.path}</strong><span>{gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Alterações locais em relação ao HEAD.'}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label="Fechar diff" title="Fechar diff"><Icon name="close" size={16}/></button></header>{gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile}/> : null}</section></div>}
+    {menu && <WorkbenchContextMenu x={menu.x} y={menu.y} label={formatMessage('Ações de {path}', { path: menu.node.path })} onClose={dismissMenu} actions={[
+      ...(menu.node.kind === 'file' ? [{ id: 'open', label: uiText('Abrir no Editor'), icon: 'file' as const, run: () => onOpen(menu.node.path) }] : []),
+      ...(canOpenGitDiff(gitByPath.get(menu.node.path)) ? [{ id: 'git', label: uiText('Ver alterações Git'), icon: 'git' as const, run: () => { void openGitDiff(menu.node.path) } }] : []),
+      { id: 'copy', label: uiText('Copiar caminho'), icon: 'copy', run: () => { void copyPath(menu.node).catch((error) => onError(messageOf(error))) } },
+      { id: 'rename', label: uiText('Renomear'), icon: 'rename', run: () => { void rename(menu.node) } },
+      { id: 'delete', label: uiText('Eliminar'), icon: 'trash', separator: true, danger: true, run: () => { void remove(menu.node) } },
+    ]}/>}
+    {gitDiff && <div className="diff-inspector-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setGitDiff(undefined) }}><section className="diff-inspector editor-git-diff"><header><div><strong>{gitDiff.path}</strong><span>{uiText(gitDiff.truncated ? 'Diff truncado a 512 KiB.' : 'Alterações locais em relação ao HEAD.')}</span></div><button type="button" className="icon-button" onClick={() => setGitDiff(undefined)} aria-label={uiText('Fechar diff')} title={uiText('Fechar diff')}><Icon name="close" size={16}/></button></header>{gitDiffFile ? <ChangeDiffEditor sessionId={session.id} file={gitDiffFile}/> : null}</section></div>}
   </section>
 }
 
 function publishMutation(detail: WorkspaceMutation) { window.dispatchEvent(new CustomEvent('wharnex:workspace-files-changed', { detail })) }
 
-function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return 'Erro inesperado' }
+function messageOf(error: unknown) { if (error instanceof APIError || error instanceof Error) return error.message; return uiText('Erro inesperado') }

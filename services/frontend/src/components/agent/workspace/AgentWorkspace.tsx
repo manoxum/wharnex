@@ -12,6 +12,7 @@ import { Icon } from '../../presentation/chrome/Icon'
 import { desktopWindowScope } from '../../../lib/project/context/projectBindings'
 import { type AttentionItem, type AttentionTarget, type AttentionTone } from '../../../lib/attention/center/attentionCenter'
 import { boundedAgentChatWidth } from '../../../lib/agent/runtime/agentLayout'
+import { AgentWorkspaceSplitter } from './AgentWorkspaceSplitter'
 
 const AGENT_CHAT_WIDTH_KEY = 'whx.agent.chat-width'
 const AGENT_CHAT_WIDTH_PREFIX = `${AGENT_CHAT_WIDTH_KEY}:`
@@ -301,7 +302,7 @@ export function AgentWorkspace({ session, busy, attentionItems = [], chatgptAtte
       onFocusCapture={() => setFocusedPane('chat')}
     ><AgentChatSurface chatProps={chatProps} inspectorProps={inspectorProps} panelRef={chatPanelRef} viewportStore={chatViewportStoreRef.current} onExportChat={onExportChat}/></div>
     {!singlePane && (
-      <button type="button" className="agent-splitter" aria-label="Redimensionar chat e Engine" title="Arraste para redimensionar" onPointerDown={beginResize}/>
+      <AgentWorkspaceSplitter onPointerDown={beginResize}/>
     )}
     <div
       className={`agent-inspector-stage${singlePane && singlePaneSurface === 'chat' ? ' surface-hidden' : ''}`}

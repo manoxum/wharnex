@@ -11,6 +11,12 @@ export function supportingPanelBounds(tool: Drawer): PanelBounds {
 }
 export function primaryWorkspaceReserve(width: number) { return Math.min(560, Math.max(360, Math.round(width * 0.42))) }
 
+// Both activity rails reserve 48px, including when a drawer overlays the editor.
+export function supportingOverlayWidth(width: number, preferred: number, tool: Drawer) {
+  const bounds = supportingPanelBounds(tool)
+  return Math.max(0, Math.min(Math.max(preferred, bounds.min), bounds.max, width - 96))
+}
+
 // Projection only: the caller keeps the original preferred geometry in storage.
 export function allocateSupportingPanels(width: number, chrome: number, left?: Panel, right?: Panel, priority?: 'left' | 'right') {
   const reserve = primaryWorkspaceReserve(width)

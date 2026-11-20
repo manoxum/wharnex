@@ -1,4 +1,5 @@
 import { GitPanelHeader } from './presentation/GitPanelHeader'
+import { GitTabContent } from './presentation/GitTabContent'
 import { gitTabLabel } from './gitTabModel'
 import { GitTabs, type GitTab, type GitChangesTab } from './GitTabs'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -196,7 +197,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
       </div>}
       {overview.in_progress && <p className="git-notice warning-card">Há um <strong>{overview.in_progress}</strong> em curso no host. Termine-o ou aborte-o antes de aplicar ou fazer merge.</p>}
 
-      <div className="git-tab-content" role="tabpanel" aria-label={gitTabLabel(activeTab)}>
+      <GitTabContent label={gitTabLabel(activeTab)} stretch={activeTab === 'changes'}>
         {activeTab === 'changes' && <GitChangesPanel
           sessionId={session.id} entries={repositoryEntries} disabled={disabled}
           active={activeChangesTab} onChange={setActiveChangesTab}
@@ -368,7 +369,7 @@ export function GitDrawer({ session, busy, onClose, onError, onSession, onResolv
             })()}
           />
         </>}
-      </div>
+      </GitTabContent>
     </>}
 
     {openDiff && <DiffModal sessionId={session.id} record={openDiff} onClose={() => setOpenDiff(null)} />}

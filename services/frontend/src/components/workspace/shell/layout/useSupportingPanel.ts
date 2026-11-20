@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { Drawer } from '../../../../lib/workspace/layout/workspaceDrawer'
-import { allocateSupportingPanels, primaryWorkspaceReserve, supportingPanelBounds } from './panelAllocation'
+import { allocateSupportingPanels, primaryWorkspaceReserve, supportingPanelBounds, supportingOverlayWidth } from './panelAllocation'
 import { panelPriority } from './panelPriority'
 
 export function useSupportingPanel(side: 'left' | 'right', tool: Drawer, preferred: number, projectPath: string) {
@@ -30,8 +30,7 @@ export function useSupportingPanel(side: 'left' | 'right', tool: Drawer, preferr
       const leftOverlay = Boolean(left && supportingPanelBounds(left.tool).min > width - chrome - primaryWorkspaceReserve(width))
       const allocation = allocateSupportingPanels(width, chrome, leftOverlay ? undefined : left, right, panelPriority(row, projectPath))
       const overlay = side === 'right' ? width < 1000 || allocation.rightOverlay : width < 700 || leftOverlay
-      const bounds = supportingPanelBounds(tool)
-      const projected = overlay ? Math.min(Math.max(preferred, bounds.min), bounds.max, width - 88) : allocation[side]
+      const projected = overlay ? supportingOverlayWidth(width, preferred, tool) : allocation[side]
       const next = { width: Math.max(0, projected), overlay }
       setGeometry((current) => current.width === next.width && current.overlay === next.overlay ? current : next)
     }

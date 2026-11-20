@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { type ComponentProps, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../../lib/transport/http/api'
 import { canonicalTaskDirective } from '../../../lib/chat/composer/composerTaskDirectives'
@@ -109,13 +110,13 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
   const totalTasks = planFilter ? tasks.length : Object.values(overview.task_counts).reduce((total, count) => total + count, 0)
   return <div className="orchestrator-tasks-page">
     <header className="orchestrator-tasks-toolbar">
-      <div><strong className="text-lg">Tasks</strong><span className="text-sm text-[var(--theme-text-muted)]">{planFilter ? `${totalTasks} no plano` : `${totalTasks} no projeto`} · {filteredTaskCounts.DOING} em execução</span></div>
-      {planFilter && <div className="flex items-center gap-2 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2.5 py-1.5 text-sm" role="status"><span className="truncate">Filtro: <strong>{activePlan?.title || 'Plano'}</strong> · <span className="font-mono text-[var(--theme-text-soft)]">{planFilter}</span></span><button className="shrink-0 font-semibold" type="button" onClick={() => onPlanFilterChange?.(undefined)} aria-label="Limpar filtro e ver todas as tasks">Ver todas</button></div>}
-      <label className="orchestrator-search"><Icon name="search" size={14}/><input className="text-base" type="search" aria-label="Pesquisar tasks" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Pesquisar tasks" />{search ? <button type="button" className="grid place-items-center border-0 bg-transparent p-0 text-[var(--theme-text-soft)]" aria-label="Limpar pesquisa" onClick={() => setSearch('')}><Icon name="close" size={12}/></button> : null}</label>
-      <div className="orchestrator-view-switch" role="group" aria-label="Vista de tasks">
-        {VIEWS.map((item) => <button key={item.id} type="button" aria-pressed={view === item.id} aria-label={item.label} title={item.label} className={view === item.id ? 'active' : ''} onClick={() => setView(item.id)}><Icon name={item.icon} size={15}/></button>)}
+      <div><strong className="text-lg">Tasks</strong><span className="text-sm text-[var(--theme-text-muted)]">{planFilter ? `${totalTasks} no plano` : `${totalTasks} no projeto`} · {filteredTaskCounts.DOING} {' '}{uiText("em execução")}</span></div>
+      {planFilter && <div className="flex items-center gap-2 rounded-lg border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2.5 py-1.5 text-sm" role="status"><span className="truncate">{uiText("Filtro:")}{' '}<strong>{activePlan?.title || 'Plano'}</strong> · <span className="font-mono text-[var(--theme-text-soft)]">{planFilter}</span></span><button className="shrink-0 font-semibold" type="button" onClick={() => onPlanFilterChange?.(undefined)} aria-label={uiText("Limpar filtro e ver todas as tasks")}>{uiText("Ver todas")}</button></div>}
+      <label className="orchestrator-search"><Icon name="search" size={14}/><input className="text-base" type="search" aria-label={uiText("Pesquisar tasks")} value={search} onChange={(event) => setSearch(event.target.value)} placeholder={uiText("Pesquisar tasks")} />{search ? <button type="button" className="grid place-items-center border-0 bg-transparent p-0 text-[var(--theme-text-soft)]" aria-label="Limpar pesquisa" onClick={() => setSearch('')}><Icon name="close" size={12}/></button> : null}</label>
+      <div className="orchestrator-view-switch" role="group" aria-label={uiText("Vista de tasks")}>
+        {VIEWS.map((item) => <button key={item.id} type="button" aria-pressed={view === item.id} aria-label={uiText(item.label)} title={uiText(item.label)} className={view === item.id ? 'active' : ''} onClick={() => setView(item.id)}><Icon name={item.icon} size={15}/></button>)}
       </div>
-      <button className="primary text-base font-bold" type="button" onClick={() => setNewTaskOpen(true)}><Icon name="plus" size={14}/> Nova Task</button>
+      <button className="primary text-base font-bold" type="button" onClick={() => setNewTaskOpen(true)}><Icon name="plus" size={14}/> {' '}{uiText("Nova Task")}</button>
     </header>
 
     <div className={`orchestrator-task-surface view-${view}`}>
@@ -132,16 +133,16 @@ export function OrchestratorTasks({ session, overview, terminalPages = {}, chatP
 }
 
 function TaskTable({ tasks, onSelect }: { tasks: OrchestratorTask[]; onSelect: (task: OrchestratorTask) => void }) {
-  return <div className="orchestrator-table-wrap"><table className="orchestrator-table"><thead className="text-base font-semibold"><tr><th>Task</th><th>Status</th><th>Condição</th><th>Prioridade</th><th>Dependências</th><th>Atualizada</th></tr></thead><tbody className="text-sm">
-    {tasks.map((task) => <tr key={task.id} onClick={() => onSelect(task)}><td><strong className="text-base">{task.title}</strong><small className="font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{task.plan_id ? 'Plano' : 'Manual'} · {task.id}</small></td><td><Status status={task.status}/></td><td>{task.condition === 'none' ? '—' : task.condition.replaceAll('_', ' ')}</td><td>{task.priority}</td><td>{task.depends_on?.length || 0}</td><td>{formatDate(task.updated_at)}</td></tr>)}
-  </tbody></table>{!tasks.length && <div className="orchestrator-empty text-base">Nenhuma task corresponde ao filtro.</div>}</div>
+  return <div className="orchestrator-table-wrap"><table className="orchestrator-table"><thead className="text-base font-semibold"><tr><th>Task</th><th>Status</th><th>Condição</th><th>{uiText("Prioridade")}</th><th>{uiText("Dependências")}</th><th>{uiText("Atualizada")}</th></tr></thead><tbody className="text-sm">
+    {tasks.map((task) => <tr key={task.id} onClick={() => onSelect(task)}><td><strong className="text-base">{task.title}</strong><small className="font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">{task.plan_id ? uiText("Plano") : 'Manual'} · {task.id}</small></td><td><Status status={task.status}/></td><td>{task.condition === 'none' ? '—' : task.condition.replaceAll('_', ' ')}</td><td>{task.priority}</td><td>{task.depends_on?.length || 0}</td><td>{formatDate(task.updated_at)}</td></tr>)}
+  </tbody></table>{!tasks.length && <div className="orchestrator-empty text-base">{uiText("Nenhuma task corresponde ao filtro.")}</div>}</div>
 }
 
 function TaskGraph({ tasks, onSelect }: { tasks: OrchestratorTask[]; onSelect: (task: OrchestratorTask) => void }) {
   const levels = graphLevels(tasks)
   return <div className="orchestrator-graph">
-    {levels.map((level, index) => <section key={index}><header className="mb-2 font-mono text-sm uppercase tracking-[0.08em] text-[var(--theme-text-soft)]">Camada {index + 1}</header><div>{level.map((task) => <button key={task.id} onClick={() => onSelect(task)}><Status status={task.status}/><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-soft)]">{task.depends_on?.length ? `← ${task.depends_on.length} dependência(s)` : 'Ponto de entrada'}</small></button>)}</div>{index < levels.length - 1 && <span className="graph-arrow text-lg">↓</span>}</section>)}
-    {!tasks.length && <div className="orchestrator-empty text-base">Nenhuma task para representar no grafo.</div>}
+    {levels.map((level, index) => <section key={index}><header className="mb-2 font-mono text-sm uppercase tracking-[0.08em] text-[var(--theme-text-soft)]">{uiText("Camada")}{' '}{index + 1}</header><div>{level.map((task) => <button key={task.id} onClick={() => onSelect(task)}><Status status={task.status}/><strong className="text-base">{task.title}</strong><small className="text-sm text-[var(--theme-text-soft)]">{task.depends_on?.length ? `← ${task.depends_on.length} dependência(s)` : uiText("Ponto de entrada")}</small></button>)}</div>{index < levels.length - 1 && <span className="graph-arrow text-lg">↓</span>}</section>)}
+    {!tasks.length && <div className="orchestrator-empty text-base">{uiText("Nenhuma task para representar no grafo.")}</div>}
   </div>
 }
 
@@ -157,14 +158,14 @@ function NewTaskDrawer({ session, overview, busy, onClose, onRun }: { session: S
     if (value) onClose()
   }
   return <div className="orchestrator-drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><aside className="orchestrator-drawer">
-    <header><div><span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">Task manual</span><strong className="truncate text-lg">Nova Task</strong></div><button onClick={onClose} aria-label="Fechar"><Icon name="close" size={16}/></button></header>
+    <header><div><span className="truncate font-mono text-sm leading-[1.3] text-[var(--theme-text-soft)]">Task manual</span><strong className="truncate text-lg">{uiText("Nova Task")}</strong></div><button onClick={onClose} aria-label={uiText("Fechar")}><Icon name="close" size={16}/></button></header>
     <div className="orchestrator-form">
-      <label className="text-sm font-semibold">Título<input className="text-base" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus /></label>
-      <label className="text-sm font-semibold">Descrição<textarea className="text-base" value={description} onChange={(event) => setDescription(event.target.value)} rows={5}/></label>
-      <div className="orchestrator-form-row"><label className="text-sm font-semibold">Plano<select className="text-base" value={planID} onChange={(event) => { setPlanID(event.target.value); setDependencies([]) }}><option value="">Sem plano</option>{overview.plans.filter((plan) => plan.status !== 'ARCHIVED').map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</select></label><label className="text-sm font-semibold">Prioridade<select className="text-base" value={priority} onChange={(event) => setPriority(event.target.value as OrchestratorPriority)}><option value="low">low</option><option value="normal">normal</option><option value="high">high</option><option value="urgent">urgent</option></select></label></div>
-      <fieldset><legend className="text-sm">Dependências</legend>{overview.tasks.filter((task) => !planID || task.plan_id === planID).filter((task) => task.status !== 'ARCHIVED').map((task) => <label key={task.id} className="orchestrator-check text-base"><input type="checkbox" checked={dependencies.includes(task.id)} onChange={(event) => setDependencies((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))}/><span>{task.title}</span><Status status={task.status}/></label>)}</fieldset>
+      <label className="text-sm font-semibold">{uiText("Título")}<input className="text-base" value={title} onChange={(event) => setTitle(event.target.value)} autoFocus /></label>
+      <label className="text-sm font-semibold">{uiText("Descrição")}<textarea className="text-base" value={description} onChange={(event) => setDescription(event.target.value)} rows={5}/></label>
+      <div className="orchestrator-form-row"><label className="text-sm font-semibold">{uiText("Plano")}<select className="text-base" value={planID} onChange={(event) => { setPlanID(event.target.value); setDependencies([]) }}><option value="">{uiText("Sem plano")}</option>{overview.plans.filter((plan) => plan.status !== 'ARCHIVED').map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</select></label><label className="text-sm font-semibold">{uiText("Prioridade")}<select className="text-base" value={priority} onChange={(event) => setPriority(event.target.value as OrchestratorPriority)}><option value="low">low</option><option value="normal">normal</option><option value="high">high</option><option value="urgent">urgent</option></select></label></div>
+      <fieldset><legend className="text-sm">{uiText("Dependências")}</legend>{overview.tasks.filter((task) => !planID || task.plan_id === planID).filter((task) => task.status !== 'ARCHIVED').map((task) => <label key={task.id} className="orchestrator-check text-base"><input type="checkbox" checked={dependencies.includes(task.id)} onChange={(event) => setDependencies((current) => event.target.checked ? [...current, task.id] : current.filter((id) => id !== task.id))}/><span>{task.title}</span><Status status={task.status}/></label>)}</fieldset>
     </div>
-    <footer><button className="text-base" onClick={onClose}>Cancelar</button><button className="primary text-base font-bold" disabled={busy || !title.trim()} onClick={() => void create()}>Criar Task</button></footer>
+    <footer><button className="text-base" onClick={onClose}>{uiText("Cancelar")}</button><button className="primary text-base font-bold" disabled={busy || !title.trim()} onClick={() => void create()}>{uiText("Criar Task")}</button></footer>
   </aside></div>
 }
 

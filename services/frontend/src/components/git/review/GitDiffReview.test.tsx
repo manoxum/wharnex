@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GitDiffReview } from './GitDiffReview'
 
@@ -22,5 +22,17 @@ describe('GitDiffReview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expandir lista de ficheiros' }))
     expect(review.classList.contains('files-collapsed')).toBe(false)
     expect(review.querySelector('.git-diff-review-file-list')).not.toBeNull()
+  })
+
+  it('keeps the filename and parent path visible in long diff entries', () => {
+    const path = 'services/frontend/src/lib/attention/center/attentionHistory.test.ts'
+    render(<GitDiffReview sessionId="session" emptyText="Sem diff" files={[
+      { path, additions: 4, deletions: 1, diff: '' },
+      { path: 'src/other.ts', additions: 1, deletions: 0, diff: '' },
+    ]}/>)
+
+    const file = screen.getByRole('button', { name: path })
+    expect(within(file).getByText('attentionHistory.test.ts')).toBeTruthy()
+    expect(within(file).getByText('…/attention/center')).toBeTruthy()
   })
 })

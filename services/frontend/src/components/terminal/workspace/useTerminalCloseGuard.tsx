@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type RefObject } from 'react'
-import { createPortal } from 'react-dom'
 import { TerminalProcessCloseDialog } from './TerminalProcessCloseDialog'
 import { runningTerminalProcesses, terminateTerminalProcesses, type TerminalRuntimeRecord } from '../runtime/terminalRuntime'
 
@@ -70,8 +69,7 @@ export function useTerminalCloseGuard(frames: Frames, projects: string[], closeP
     setError(''); setPendingProject(projectPath)
   }
 
-  const dialog = pendingProject ? createPortal(<div className="desktop-close-backdrop">
-    <TerminalProcessCloseDialog
+  const dialog = pendingProject ? <TerminalProcessCloseDialog
       count={pendingTerminals.length}
       subject="este projeto"
       busy={busy}
@@ -79,8 +77,7 @@ export function useTerminalCloseGuard(frames: Frames, projects: string[], closeP
       onKeep={() => void finishProjectClose(false)}
       onTerminate={() => void finishProjectClose(true)}
       onCancel={() => { if (!busy) { setPendingProject(''); setError('') } }}
-    />
-  </div>, document.body) : null
+    /> : null
 
   return { requestProjectClose, windowTerminals, dialog }
 }

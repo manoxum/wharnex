@@ -7,13 +7,14 @@ import { InternalWindow } from '../../workspace/window/InternalWindow'
 import { GitDiffReview } from '../review/GitDiffReview'
 import { ContentSkeleton } from '../../presentation/chrome/Skeleton'
 
-export function GitUnpushedSection({ sessionId, repository, repositoryLabel, activeBranch, remotes, disabled, onFullPush, onSelectedPush }: {
+export function GitUnpushedSection({ sessionId, repository, repositoryLabel, activeBranch, remotes, disabled, fillContainer = false, onFullPush, onSelectedPush }: {
   sessionId: string
   repository: string
   repositoryLabel?: string
   activeBranch?: GitBranch
   remotes: GitRemote[]
   disabled: boolean
+  fillContainer?: boolean
   onFullPush: (remote: string, branch: string, setUpstream: boolean) => Promise<void>
   onSelectedPush: (commitSHAs: string[]) => Promise<void>
 }) {
@@ -75,7 +76,7 @@ export function GitUnpushedSection({ sessionId, repository, repositoryLabel, act
   }
 
   const blocked = disabled || loading || actionBusy
-  return <section className="git-change-surface git-unpushed-section">
+  return <section className={`git-change-surface git-unpushed-section${fillContainer ? ' !flex !min-h-0 !min-w-0 !flex-1 !flex-col !overflow-hidden' : ''}`}>
     <div className="git-change-surface-heading">
       <div><span>Branch local{repositoryLabel ? ` · ${repositoryLabel}` : ''}</span><strong>Commits por publicar</strong></div>
       <span className="git-section-count">{overview?.commits.length || 0}</span>
@@ -105,7 +106,7 @@ export function GitUnpushedSection({ sessionId, repository, repositoryLabel, act
           <Icon name="arrow-up" size={13}/> Push selecionado ({selected.size})
         </button>}
       </div>
-      <ul className="git-unpushed-list">
+      <ul className={`git-unpushed-list${fillContainer ? ' !min-h-0 !min-w-0 !flex-1 !overflow-y-auto' : ''}`}>
         {overview.commits.map((commit) => <li key={commit.sha}>
           <input type="checkbox" aria-label={`Selecionar ${commit.subject}`} checked={selected.has(commit.sha)} disabled={blocked || !canPushSelected} onChange={(event) => toggleCommit(commit.sha, event.target.checked)}/>
           <span className="git-unpushed-commit-icon"><Icon name="git" size={12}/></span>

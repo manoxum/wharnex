@@ -54,7 +54,6 @@
   .theme-preference-control { grid-template-columns: 1fr; }
 }/* Monaco change diff chrome follows the local Wharnex appearance. */
 
-
 /* Unified workbench palette: drawers and their detail panes belong to one theme. */
 :root[data-theme='light'] .project-activity-list,
 :root[data-theme='light'] .project-activity-detail { background: var(--theme-surface); color: var(--theme-text); border-color: var(--theme-border); }
@@ -74,7 +73,7 @@
 :root[data-theme='dark'] .chat-panel.embedded,
 :root[data-theme='dark'] .inspector-panel.embedded,
 :root[data-theme='dark'] .project-activity-detail { background: var(--theme-bg); color: var(--theme-text); }
-:root[data-theme='dark'] .agent-activity-bar,
+
 :root[data-theme='dark'] .agent-drawer,
 :root[data-theme='dark'] .project-activity-list { background: var(--theme-surface); border-color: var(--theme-border); color: var(--theme-text-soft); }
 :root[data-theme='dark'] .agent-direct-chatgpt-tab button.active,

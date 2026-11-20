@@ -45,7 +45,7 @@ interface WharnessDesktopBridge {
     bindings(): Promise<{ windowId: string; projects: string[] }>
   }
   windows: {
-    info(): Promise<{ windowId: string; windowCount: number }>
+    info(): Promise<{ windowId: string; windowCount: number; systemLanguages?: string[] }>
     recovery(): Promise<{ active: boolean; projects: string[]; activeProject: string; pending?: boolean }>
     projects(): Promise<{ currentWindowId: string; items: Array<{ windowId: string; projectPath: string; focused: boolean }> }>
     focusProject(projectPath: string): Promise<{ ok: boolean; windowId: string; projectPath: string }>

@@ -3,7 +3,6 @@
   .internal-window-controls { top: 6px; right: 6px; }
   .internal-window-shell > [role='dialog'] > header,
   .internal-window-shell > [role='alertdialog'] > header { padding-right: 90px; }
-  .internal-window-shell > .app-dialog-card { padding-right: 90px; }
   .internal-window-dock { right: 8px; bottom: 8px; max-width: calc(100vw - 16px); }
 }
 /* Editor search palettes ------------------------------------------------- */

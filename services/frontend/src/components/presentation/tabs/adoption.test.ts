@@ -26,7 +26,7 @@ describe('workbench tab adoption gate', () => {
       'chat/panel/ChatManagementDrawer', 'chat/attachments/ComposerAttachmentTabs', 'docker/services/DockerDetailTabs',
       'orchestrator/tasks/OrchestratorTaskDetailTabs', 'orchestrator/planning/OrchestratorPlanTabs', 'project/knowledge/EvolutionEvidenceTabs',
       'editor/inspector/InspectorTabs', 'editor/inspector/ContextInspector', 'editor/inspector/ConflictResolverModal',
-      'execution/history/ExecutionErrorsDrawer', 'execution/recovery/RestartConfirmation', 'editor/canvas/EditorTabs',
+      'execution/history/diagnostics/ExecutionProblemFilters', 'execution/recovery/RestartConfirmation', 'editor/canvas/EditorTabs',
       'terminal/workspace/TerminalTabBar', 'chat/navigation/ChatTabs', 'workspace/surfaces/WorkspaceSurfaceTabs', 'workspace/projects/ProjectTabs',
     ]
     for (const owner of owners) expect(readFileSync(resolve(sourceRoot, `components/${owner}.tsx`), 'utf8'), owner).toContain('/presentation/tabs')

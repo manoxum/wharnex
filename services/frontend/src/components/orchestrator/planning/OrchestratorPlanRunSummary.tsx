@@ -1,3 +1,4 @@
+import { translate as uiText } from '../../../lib/workspace/localization'
 import { useMemo } from 'react'
 import { ORCHESTRATOR_TASK_STATUSES, type OrchestratorPlanningDetail, type OrchestratorTask } from '../../../types'
 import type { OrchestratorPhase } from '../../../types/orchestrator'
@@ -5,18 +6,18 @@ import type { OrchestratorPhase } from '../../../types/orchestrator'
 function phasePresentation(phase: OrchestratorPhase | undefined) {
   switch (phase) {
     case 'AWAITING_APPROVAL':
-      return { label: 'Em análise', className: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
+      return { label: uiText("Em análise"), className: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
     case 'EXECUTING':
-      return { label: 'Em execução', className: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
+      return { label: uiText("Em execução"), className: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
     case 'REVIEW':
       return { label: 'Review', className: 'border-[var(--theme-warning)] bg-[color-mix(in_srgb,var(--theme-warning)_10%,var(--theme-surface))] text-[var(--theme-warning)]' }
     case 'COMPLETED':
-      return { label: 'Concluído', className: 'border-[var(--theme-success)] bg-[color-mix(in_srgb,var(--theme-success)_9%,var(--theme-surface))] text-[var(--theme-success)]' }
+      return { label: uiText("Concluído"), className: 'border-[var(--theme-success)] bg-[color-mix(in_srgb,var(--theme-success)_9%,var(--theme-surface))] text-[var(--theme-success)]' }
     case 'ARCHIVED':
-      return { label: 'Encerrado', className: 'border-[var(--theme-border)] bg-[var(--theme-muted)] text-[var(--theme-text-muted)]' }
+      return { label: uiText("Encerrado"), className: 'border-[var(--theme-border)] bg-[var(--theme-muted)] text-[var(--theme-text-muted)]' }
     case 'PLANNING':
     default:
-      return { label: 'Em andamento', className: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
+      return { label: uiText("Em andamento"), className: 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)] text-[var(--theme-text)]' }
   }
 }
 
@@ -46,19 +47,19 @@ export function OrchestratorPlanProgressSummary({ detail, phase }: { detail: Orc
     return { taskCounts, runCounts, attemptCounts, runs }
   }, [detail])
 
-  return <section className="rounded-lg border border-[var(--theme-border)] p-3" aria-label="Resumo de progresso do plano">
+  return <section className="rounded-lg border border-[var(--theme-border)] p-3" aria-label={uiText("Resumo de progresso do plano")}>
     <div className="flex flex-wrap items-baseline justify-between gap-2">
-      <strong className="text-base">Progresso</strong>
-      <span className="text-sm text-[var(--theme-text-muted)]">{detail.tasks.length} task{detail.tasks.length === 1 ? '' : 's'} · {summary.runs === 1 ? '1 execução' : `${summary.runs} execuções`} · {detail.attempts.length} tentativa{detail.attempts.length === 1 ? '' : 's'} de planeamento</span>
+      <strong className="text-base">{uiText("Progresso")}</strong>
+      <span className="text-sm text-[var(--theme-text-muted)]">{detail.tasks.length} task{detail.tasks.length === 1 ? '' : 's'} · {summary.runs === 1 ? uiText("1 execução") : `${summary.runs} execuções`} · {detail.attempts.length} {' '}{uiText("tentativa")}{detail.attempts.length === 1 ? '' : 's'} {' '}{uiText("de planeamento")}</span>
     </div>
     <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-2.5 py-2">
-      <span className="text-sm font-semibold text-[var(--theme-text-muted)]">Fase da orquestração</span>
+      <span className="text-sm font-semibold text-[var(--theme-text-muted)]">{uiText("Fase da orquestração")}</span>
       <OrchestratorPhaseBadge phase={phase}/>
     </div>
-    <p className="mb-0 mt-2 text-sm text-[var(--theme-text-soft)]">Review ainda não é conclusão. A fase Concluído só é liberada quando todas as tasks chegam a COMPLETE ou preservam evidência equivalente de conclusão no histórico, como ARCHIVED com was_completed=true.</p>
+    <p className="mb-0 mt-2 text-sm text-[var(--theme-text-soft)]">{uiText("Review ainda não é conclusão. A fase Concluído só é liberada quando todas as tasks chegam a COMPLETE ou preservam evidência equivalente de conclusão no histórico, como ARCHIVED com was_completed=true.")}</p>
     <StatusCounts label="Tasks por status" entries={ORCHESTRATOR_TASK_STATUSES.map((status) => [status, summary.taskCounts[status]] as [string, number])}/>
-    <StatusCounts label="Execuções por status" entries={Object.entries(summary.runCounts)}/>
-    <StatusCounts label="Tentativas por status" entries={Object.entries(summary.attemptCounts)}/>
+    <StatusCounts label={uiText("Execuções por status")} entries={Object.entries(summary.runCounts)}/>
+    <StatusCounts label={uiText("Tentativas por status")} entries={Object.entries(summary.attemptCounts)}/>
   </section>
 }
 
@@ -66,7 +67,7 @@ function StatusCounts({ label, entries }: { label: string; entries: Array<[strin
   const visible = entries.filter(([, count]) => count > 0)
   return <div className="mt-3">
     <span className="text-sm font-semibold text-[var(--theme-text-muted)]">{label}</span>
-    {visible.length ? <div className="mt-1 flex flex-wrap gap-1.5">{visible.map(([status, count]) => <span key={status} className="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm"><strong>{count}</strong> {status}</span>)}</div> : <p className="mb-0 mt-1 text-sm text-[var(--theme-text-soft)]">Sem registos.</p>}
+    {visible.length ? <div className="mt-1 flex flex-wrap gap-1.5">{visible.map(([status, count]) => <span key={status} className="rounded-full border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm"><strong>{count}</strong> {status}</span>)}</div> : <p className="mb-0 mt-1 text-sm text-[var(--theme-text-soft)]">{uiText("Sem registos.")}</p>}
   </div>
 }
 
@@ -77,21 +78,21 @@ export function OrchestratorPlanExecutionsTab({ detail, onSelectTask }: { detail
 
   return <div className="grid gap-3">
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--theme-border-soft)] bg-[var(--theme-subtle)] px-3 py-2">
-      <strong className="text-base">Execuções das tasks deste plano</strong>
-      <span className="font-mono text-sm text-[var(--theme-text-muted)]">{count === 1 ? '1 execução' : `${count} execuções`}</span>
+      <strong className="text-base">{uiText("Execuções das tasks deste plano")}</strong>
+      <span className="font-mono text-sm text-[var(--theme-text-muted)]">{count === 1 ? uiText("1 execução") : `${count} execuções`}</span>
     </div>
     {groups.map(({ task, runs }) => <section key={task.id} className="rounded-lg border border-[var(--theme-border)] p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0"><strong className="block truncate text-base">{task.title}</strong><span className="font-mono text-sm text-[var(--theme-text-soft)]">{task.id}</span></div>
-        <button type="button" className="shrink-0 rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-text)] disabled:cursor-default disabled:opacity-60" disabled={!onSelectTask} onClick={() => onSelectTask?.(task)} aria-label={`Abrir task ${task.title}`}>Abrir task</button>
+        <button type="button" className="shrink-0 rounded-md border border-[var(--theme-border)] bg-transparent px-2.5 py-1.5 text-sm font-semibold text-[var(--theme-text)] disabled:cursor-default disabled:opacity-60" disabled={!onSelectTask} onClick={() => onSelectTask?.(task)} aria-label={`Abrir task ${task.title}`}>{uiText("Abrir task")}</button>
       </div>
-      <div className="mt-2 flex items-center gap-2 text-sm text-[var(--theme-text-muted)]"><span>{task.status}</span><span aria-hidden="true">·</span><span>{runs.length === 1 ? '1 execução' : `${runs.length} execuções`}</span></div>
-      {!runs.length ? <div className="mt-3 rounded-md border border-dashed border-[var(--theme-border)] px-3 py-2 text-sm text-[var(--theme-text-muted)]">Nenhuma execução registrada para esta task.</div> : <div className="mt-3 grid gap-2">
+      <div className="mt-2 flex items-center gap-2 text-sm text-[var(--theme-text-muted)]"><span>{task.status}</span><span aria-hidden="true">·</span><span>{runs.length === 1 ? uiText("1 execução") : `${runs.length} execuções`}</span></div>
+      {!runs.length ? <div className="mt-3 rounded-md border border-dashed border-[var(--theme-border)] px-3 py-2 text-sm text-[var(--theme-text-muted)]">{uiText("Nenhuma execução registrada para esta task.")}</div> : <div className="mt-3 grid gap-2">
         {runs.map((run) => <article key={run.id} className="rounded-md border border-[var(--theme-border-soft)] bg-[var(--theme-surface)] p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-base">Tentativa {run.attempt}</strong><span className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm font-bold">{run.status}</span></div>
-          <p className="mb-0 mt-2 text-sm text-[var(--theme-text-muted)]">Início {formatDate(run.started_at)} · {run.completed_at ? `Fim ${formatDate(run.completed_at)}` : 'Ainda em execução'}</p>
+          <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-base">{uiText("Tentativa")}{' '}{run.attempt}</strong><span className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-subtle)] px-2 py-1 font-mono text-sm font-bold">{run.status}</span></div>
+          <p className="mb-0 mt-2 text-sm text-[var(--theme-text-muted)]">{uiText("Início")}{' '}{formatDate(run.started_at)} · {run.completed_at ? `Fim ${formatDate(run.completed_at)}` : uiText("Ainda em execução")}</p>
           <dl className="mb-0 mt-2 grid gap-1 text-sm"><ExecutionIdentifier label="run_id" value={run.id}/><ExecutionIdentifier label="execution_plan_id" value={run.execution_plan_id}/><ExecutionIdentifier label="request_id" value={run.request_id}/><ExecutionIdentifier label="session_id" value={run.session_id}/></dl>
-          {run.error ? <div className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--theme-danger)_35%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-danger)_8%,transparent)] px-3 py-2"><strong className="text-sm text-[var(--theme-danger)]">Erro</strong><p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-danger)]">{run.error}</p></div> : null}
+          {run.error ? <div className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--theme-danger)_35%,var(--theme-border))] bg-[color-mix(in_srgb,var(--theme-danger)_8%,transparent)] px-3 py-2"><strong className="text-sm text-[var(--theme-danger)]">{uiText("Erro")}</strong><p className="mb-0 mt-1 whitespace-pre-wrap text-sm text-[var(--theme-danger)]">{run.error}</p></div> : null}
         </article>)}
       </div>}
     </section>)}

@@ -1,6 +1,6 @@
 import { useEditorNavigation } from './search/useEditorNavigation'
 import { EditorTabs } from './EditorTabs'
-import { useEditorDocumentReorder } from './tabs'
+import { useDocumentActions, useEditorDocumentReorder } from './tabs'
 import { GitFileState } from './EditorGitState'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, APIError } from '../../../lib/transport/http/api'
@@ -371,22 +371,12 @@ export function EditorWorkspace({ session, onError, onRunInTerminal, openPath, o
     if (option) runInTerminal(option)
   }
 
-  async function closeDocument(path: string) {
-    const document = documents.find((item) => item.path === path)
-    if (!document) return
-    if (document.draft !== document.content && !(await save(path))) return
-    disposeEditorModel(path)
-    const index = documents.findIndex((item) => item.path === path)
-    const remaining = documents.filter((item) => item.path !== path)
-    setDocuments(remaining)
-    setPreviewPaths((items) => { const next = new Set(items); next.delete(path); return next })
-    if (activePath === path) setActivePath(remaining[Math.min(index, remaining.length - 1)]?.path)
-  }
+  const documentActions = useDocumentActions({ projectPath: session.project_path, sessionID: session.id, documentsRef, setDocuments, activePath, setActivePath, setPreviewPaths, hiddenPaths: hiddenPathSet, save, reopen: openFile })
 
   return <section className="editor-workspace">
     <div className="editor-main">
       <div className="editor-area">
-        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPaths={savingPaths} gitByPath={gitByPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={closeDocument} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} onReorder={reorderDocuments} />}
+        {visibleDocuments.length > 0 && !minimalSurface && <EditorTabs documents={visibleDocuments} activePath={activePath} savingPaths={savingPaths} gitByPath={gitByPath} surfaceMode={surfaceMode} onSelect={setActivePath} onClose={documentActions.close} onCloseScope={documentActions.close} pinnedPaths={documentActions.pinned} onTogglePin={documentActions.togglePin} onReopen={documentActions.canReopen ? documentActions.reopen : undefined} projectPath={session.project_path} onLocate={onLocateFile} onError={onError} onSave={save} onDetach={onDetachFile} onSplit={onSplitFile} onReorder={reorderDocuments} />}
         {selected ? <>
           {!minimalSurface && <EditorContextBar path={selected.path} projectPath={session.project_path} gitFile={selectedGit} gitDiffDisabled={!selectedGit || gitDiffLoading || isBinaryPreview(selected.path) || selectedGit.kind === 'submodule' || selectedGit.kind === 'embedded_repository'} gitDiffLoading={gitDiffLoading} directRunOption={directRunOption} recentRunOptions={recentRunOptions} showPreviewToggle={isRichPreview(selected.path) && !isBinaryPreview(selected.path)} previewing={previewPaths.has(selected.path)} onLocate={onLocateFile ? () => onLocateFile(selected.path) : undefined} onShowGitDiff={() => void showGitDiff()} onRun={runAction} onTogglePreview={() => setPreviewPaths((items) => { const next = new Set(items); if (next.has(selected.path)) next.delete(selected.path); else next.add(selected.path); return next })}/>}
           {previewPaths.has(selected.path) ? <div className="editor-rich-preview"><ArtifactPreview sessionId={session.id} path={selected.path} size={selected.size} url={api.filePreviewURL(session.id, selected.path)}/></div> : <CodeEditor path={selected.path} value={selected.draft} viewStateScope={session.project_path} onChange={updateDraft} onSave={() => void save(selected.path)} onCursorChange={setCursor} onRunSelection={runSelection} runActions={runOptions.map(({ id, label, line }) => ({ id, label, line }))} onRunAction={runAction} gitChanges={gitLineChanges} onGitChangeClick={showGitChange} runtimeMarkers={runtimeMarkers} revealLine={revealLocation?.path === selected.path ? revealLocation.line : undefined} revealColumn={revealLocation?.path === selected.path ? revealLocation.column : undefined} revealNonce={revealLocation?.path === selected.path ? revealLocation.nonce : 0} />}

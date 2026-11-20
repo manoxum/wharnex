@@ -7,10 +7,10 @@ const defaults = { projectPath: '/first', visible: true, tab: 'problems' as Oper
 beforeEach(() => { localStorage.clear(); vi.clearAllMocks() })
 
 describe('bottom utility space', () => {
-  it('uses only its strip for empty restored diagnostics without overwriting the manual height', () => {
+  it('releases all space for empty restored diagnostics without overwriting the manual height', () => {
     const { result } = renderHook(() => useUtilityPanel(defaults))
     expect(result.current.expanded).toBe(false)
-    expect(result.current.panelHeight).toBe(40)
+    expect(result.current.panelHeight).toBe(0)
     expect(defaults.onHeight).not.toHaveBeenCalled()
   })
   it('respects explicit expansion across empty results, remounts and project switches', () => {
@@ -40,7 +40,7 @@ describe('bottom utility space', () => {
     const { result, rerender } = renderHook((props) => useUtilityPanel(props), { initialProps: { ...defaults, problemCount: null } })
     expect(result.current.expanded).toBe(false)
     rerender({ ...defaults, visible: false, problemCount: null })
-    expect(result.current.panelHeight).toBe(40)
+    expect(result.current.panelHeight).toBe(0)
     expect(defaults.onClose).not.toHaveBeenCalled()
   })
 })

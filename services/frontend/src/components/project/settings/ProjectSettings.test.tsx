@@ -4,6 +4,7 @@ import type { Session } from '../../../types'
 import { api } from '../../../lib/transport/http/api'
 import { ProjectSettings } from './ProjectSettings'
 import { loadUIPreferences } from '../../../lib/workspace/preferences/uiPreferences'
+import { setLocalePreference } from '../../../lib/workspace/localization'
 
 vi.mock('../../../lib/transport/http/api', () => ({
   api: {
@@ -42,6 +43,7 @@ describe('ProjectSettings loading', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    setLocalePreference('pt')
     vi.mocked(api.contextInspection).mockResolvedValue({
       snapshot_id: 'ctx', sha256: 'abc', project_root: '/tmp/demo', included_files: 0, excluded_items: 0, included_bytes: 0, roots: [], entries: [], rules: [],
     })

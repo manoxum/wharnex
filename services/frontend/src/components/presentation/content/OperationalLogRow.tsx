@@ -1,10 +1,11 @@
+import { translate as uiText, interfaceLocale } from '../../../lib/workspace/localization'
 import { useState } from 'react'
 import { CORRELATION_LABELS, LEVEL_PRESENTATION, correlationsOf, type CorrelationField, type OperationalRecord } from '../../../lib/transport/http/operationalLog'
 
 function clock(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return `${date.toLocaleTimeString('pt-PT', { hour12: false })}.${String(date.getMilliseconds()).padStart(3, '0')}`
+  return `${date.toLocaleTimeString(interfaceLocale(), { hour12: false })}.${String(date.getMilliseconds()).padStart(3, '0')}`
 }
 
 function shortId(value: string) {
@@ -21,7 +22,7 @@ export function OperationalLogRow({ record, onPivot }: { record: OperationalReco
       <time className="shrink-0 font-mono text-xs text-whx-faint" dateTime={record.occurred_at} title={record.occurred_at}>{clock(record.occurred_at)}</time>
       <span className={`shrink-0 rounded border px-1.5 font-mono text-xs uppercase ${level.tone}`}>{level.label}</span>
       <span className="shrink-0 font-mono text-xs text-whx-faint">{record.source}</span>
-      <button type="button" className="min-w-0 flex-1 truncate text-left font-mono text-sm text-whx-text hover:text-whx-accent disabled:hover:text-whx-text" disabled={!hasData} aria-expanded={hasData ? open : undefined} onClick={() => setOpen((value) => !value)} title={hasData ? 'Mostrar detalhes' : record.event}>
+      <button type="button" className="min-w-0 flex-1 truncate text-left font-mono text-sm text-whx-text hover:text-whx-accent disabled:hover:text-whx-text" disabled={!hasData} aria-expanded={hasData ? open : undefined} onClick={() => setOpen((value) => !value)} title={hasData ? uiText("Mostrar detalhes") : record.event}>
         {record.event}
       </button>
     </div>

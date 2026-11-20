@@ -1,3 +1,5 @@
+import dialogStyleSource from '../../../lib/desktop/bridge/dialogs/dialogStyle.ts?raw'
+import appearanceChoicesSource from '../../../components/workspace/shell/appearance/AppearanceChoices.tsx?raw'
 import settingsFrameSource from '../../../components/project/settings/navigation/SettingsFrame.tsx?raw'
 import settingsPageSource from '../../../components/project/settings/presentation/SettingsPage.tsx?raw'
 import connectionSettingsSource from '../../../components/project/settings/connections/ConnectionSettingsFrame.tsx?raw'
@@ -15,8 +17,10 @@ describe('complete colour themes', () => {
     for (const surface of [
       '.bootstrap-shell', '.workspace-topbar', '.agent-workspace', '.chat-panel',
       '.composer', '.inspector-panel', '.editor-workspace', '.file-explorer',
-      '.ide-terminal', '[data-workbench-settings]', '.app-dialog-card',
+      '.ide-terminal', '[data-workbench-settings]',
     ]) expect(theme).toContain(surface)
+    expect(dialogStyleSource).toContain('!bg-whx-surface')
+    expect(dialogStyleSource).toContain('!text-whx-text')
   })
 
   it('sets the native form-control color scheme with the active theme', () => {
@@ -150,7 +154,7 @@ describe('workbench theme registry', () => {
     expect(settingsPageSource).toContain('!text-whx-text')
     expect(settingsFrameSource).toContain('!border-0')
     expect(settingsFrameSource).toContain('!text-whx-text')
-    expect(theme).toContain(':root[data-ui-theme] .quick-switcher-select-shell select option')
+    expect(appearanceChoicesSource).toContain('<Select aria-label={uiText("Tema da interface")}')
     expect(theme).toContain('background: var(--theme-elevated); color: var(--theme-text);')
     expect(theme).toContain(':root[data-ui-theme] option { background-color: var(--theme-elevated); color: var(--theme-text); }')
     expect(theme).toContain(':root[data-ui-theme] option:checked { background-color: var(--theme-accent-soft); color: var(--theme-text); }')

@@ -5,7 +5,7 @@ import { projectTabsSource, tabButtonSource, projectChromeSource } from '../../.
 describe('multi-project shell chrome', () => {
   it('uses the shell header as draggable title-bar chrome without swallowing controls', () => {
     const bar = firstRule('.multi-project-bar')
-    const controls = firstRule(".multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog'], .multi-project-bar .project-window-popover")
+    const controls = firstRule(".multi-project-bar button, .multi-project-bar input, .multi-project-bar select, .multi-project-bar textarea, .multi-project-bar label, .multi-project-bar [role='menu'], .multi-project-bar [role='dialog']")
     expect(bar).toContain('-webkit-app-region: drag')
     expect(bar).not.toContain('titlebar-area-width')
     expect(bar).toContain('height: 48px')

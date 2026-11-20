@@ -1,8 +1,9 @@
-import { BrowserWindow, dialog, screen, shell } from 'electron'
+import { app, BrowserWindow, dialog, screen, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { canonicalProjectPath } from './project-window-registry.mjs'
+import { systemLanguages } from '../appearance/index.mjs'
 import { desktopWindowTitle } from '../../identity/desktop-identity.mjs'
 
 export function registerWindowIPC({
@@ -61,7 +62,7 @@ export function registerWindowIPC({
   })
   ipcMain.handle('wharness:windows:info', (event) => {
     const windowState = trustedSender(event)
-    return { windowId: windowState.id, windowCount: desktopWindows.size }
+    return { windowId: windowState.id, windowCount: desktopWindows.size, systemLanguages: systemLanguages(app) }
   })
   ipcMain.handle('wharness:windows:recovery', (event) => {
     const windowState = trustedSender(event)

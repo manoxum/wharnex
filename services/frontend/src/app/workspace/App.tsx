@@ -1,5 +1,5 @@
 import { createCodexComposerControls, dispatchNativeCodex, useNativeActivity, preparePlannerPrompt, transportPlannerContinuation as dispatchPlannerContinuation, useCodexInbox, recoverCodexContinuation, validatePlannerBundle, type ValidatedBundleSubmit } from '../../lib/codex'
-import { WorkspaceSurfaceTabs } from '../../components/workspace/surfaces'
+import { WorkspaceSurfaceSplitter, WorkspaceSurfaceTabs } from '../../components/workspace/surfaces'
 import { createChatSessionActions } from '../settings'
 import { createRestartActions, useEventStreamConnection, canRetryDependencyNetwork, canRepairFailureWithGPT, recoveryHumanAction } from '../execution'
 import { useWorkspaceAttention, useCompletionNotifications } from '../attention'
@@ -2951,7 +2951,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
           {activeSurface.kind === 'editor' && <DeferredEditorWorkspace session={session} surfaceMode minimalSurface={surfaceRequest.host === 'window'} onError={setError} onRunInTerminal={runInTerminal} openPath={activeSurface.path} openNonce={editorOpenNonce} onSplitFile={surfaceRequest.host === 'split' ? undefined : (path, direction) => splitWorkspaceSurface(surfaceTarget('editor', { path }), direction)} />}
           {activeSurface.kind === 'terminal' && <TerminalWorkspace session={session} height={terminalHeight} visible fill runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onSplitTerminal={surfaceRequest.host === 'split' ? undefined : (direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}
         </div>
-        {splitSurface && <div className={`workspace-surface-splitter split-${splitSurface.direction}`} role="separator" aria-orientation={splitSurface.direction === 'vertical' ? 'vertical' : 'horizontal'} aria-label="Redimensionar divisão do workspace" onPointerDown={(event) => resizeWorkspaceSplit(event, splitSurface.direction)} />}
+        {splitSurface && <WorkspaceSurfaceSplitter direction={splitSurface.direction} onPointerDown={resizeWorkspaceSplit}/>}
         {splitSurface && <section className="workspace-split-pane"><header><strong>{surfaceLabel(splitSurface.target)}</strong><div><button type="button" onClick={() => detachSurface(splitSurface.target)} title="Destacar para janela" aria-label="Destacar painel para janela"><Icon name="external" size={12}/></button><button type="button" onClick={() => setSplitSurface(undefined)} title="Fechar divisão" aria-label="Fechar divisão">×</button></div></header><iframe title={`Painel ${splitSurface.target.kind}`} src={workspaceSurfaceURL(splitSurface.target, 'split')} /></section>}
       </div>
     </main>
@@ -3095,7 +3095,7 @@ function ProjectApp({ embeddedProject = '' }: { embeddedProject?: string }) {
       </div>
         <OperationalWorkbench session={session} chats={[...chats, ...savedChats, ...archivedChats]} activeChatId={activeChatId} events={events} visible={terminalOpen} height={terminalHeight} terminalActivation={workbench.terminalActivation} runRequestId={terminalRunRequest?.id} onHeight={setTerminalHeight} onOpen={() => setTerminalOpen(true)} onClose={() => setTerminalOpen(false)} terminal={(active) => <TerminalWorkspace session={session} height={terminalHeight} fill visible={active} runRequest={terminalRunRequest} onHeight={setTerminalHeight} onError={setError} onDetachTerminal={() => detachSurface(surfaceTarget('terminal'))} onSplitTerminal={(direction) => splitWorkspaceSurface(surfaceTarget('terminal'), direction)} />}/>
           </div>
-          {splitSurface && <div className={`workspace-surface-splitter split-${splitSurface.direction}`} role="separator" aria-orientation={splitSurface.direction === 'vertical' ? 'vertical' : 'horizontal'} aria-label="Redimensionar divisão do workspace" onPointerDown={(event) => resizeWorkspaceSplit(event, splitSurface.direction)} />}
+          {splitSurface && <WorkspaceSurfaceSplitter direction={splitSurface.direction} onPointerDown={resizeWorkspaceSplit}/>}
         {splitSurface && <section className="workspace-split-pane"><header><strong>{splitSurface.target.kind === 'chat' ? 'Chat' : splitSurface.target.kind === 'editor' ? splitSurface.target.path || 'Editor' : 'Terminal'}</strong><div><button type="button" onClick={() => detachSurface(splitSurface.target)} title="Destacar para janela" aria-label="Destacar painel para janela"><Icon name="external" size={12}/></button><button type="button" onClick={() => setSplitSurface(undefined)} title="Fechar divisão" aria-label="Fechar divisão">×</button></div></header><iframe title={`Painel ${splitSurface.target.kind}`} src={workspaceSurfaceURL(splitSurface.target, 'split')} /></section>}
         </div>
       </div>

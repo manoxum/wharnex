@@ -179,6 +179,24 @@ The terminal is a full `xterm` Host PTY surface rather than a command form. Typi
 
 Every sent or received Harness transcript message displays a local date/time and exposes a compact copy action without changing the stored message content. Harness/agent responses are rendered as sanitized GitHub-flavoured Markdown so headings, emphasis, lists, tables, links and code blocks remain readable; user-authored transcript text stays literal. Legacy messages without a stored timestamp may be migrated to a bounded local fallback timestamp when loaded.
 
+## Content density and interface copy (2026-10-16)
+
+Operational typography uses one compact hierarchy at the default UI scale:
+secondary metadata approximately 12px, controls/labels 13px, reading text 14px,
+panel titles 15px, section headings 16–17px and major headings at most 19px.
+The persisted UI/panel scale still applies; normal and compact density share
+these font sizes and differ in control spacing. Generic Tailwind text sizes
+and the workbench semantic tokens must use this same hierarchy rather than
+introducing a second oversized scale. Editor and PTY font preferences remain
+independent.
+
+Prefer a title, state and available actions over repeated explanatory paragraphs.
+Settings-page introductions may remain as heading tooltips/accessibility hints.
+Remove boilerplate from tool headers and empty states; keep actionable errors,
+unsaved-change prompts, permission/host-impact warnings, provenance and the
+consequences of destructive operations visible. User-authored content and
+runtime evidence must never be shortened or translated as interface copy.
+
 ## Composer, typography and self-evolution confirmation (v1.2.26)
 
 - The artefact selectors belong **inside the Wharness message composer**, visually adjacent to the textarea and send action. They are not a separate header toolbar.
@@ -419,6 +437,14 @@ The durable planning queue MUST present the orchestration's functional phase, no
 
 System settings expose an **Idioma** section with one interface-language selector and a multi-select set of Markdown translation targets. Version 1 exposes only Português, English and Français. At least one translation target stays enabled, and the interface selection is persisted globally and applied to the browser document locale so language-aware browser/accessibility behavior follows the configured locale. The settings contract is extensible for additional languages in later versions.
 
+The Desktop interface additionally owns a device-scoped `system | en | pt | fr` preference (`wharnex.interface-language.v1`). A fresh device follows the Desktop operating system preferred languages, matching supported base language codes and falling back to English. The existing trusted `windows.info()` response may include optional bounded `systemLanguages` metadata from Electron; older hosts and browser-only clients fall back to `navigator.languages`. This is a read-only extension of the existing trusted window-info boundary, with no new IPC command or remote-page access. An explicit choice overrides detection, survives reload and synchronizes across same-origin project windows. The existing backend `interface_language` field continues receiving the resolved language code; the Markdown translation-target contract is unchanged. Selecting a language must not remount the workbench or change file names, paths, editor contents, chat messages, diagnostics or execution output.
+
+Interface localization uses explicit authored-message catalogs, never DOM text replacement or remote document translation. English is the reference fallback for localized surfaces; Portuguese source messages remain available. The current catalog covers the reviewed shell navigation, open-document list/context actions, quick appearance, workspace switcher, settings navigation/language page and operational-tool controls. Other legacy tools still require message extraction; French currently uses the English fallback on these localized surfaces. The next content pass adds explicit English messages for Orchestrator overview/planning/tasks, agent details, Docker conditions, knowledge controls, notifications, appearance and Markdown translation controls. The task/settings/chat pass additionally localizes TODO cards, task overview and filters, execution queue, workspace/bundle/context/data settings, project linking, tunnel controls, composer modes and reasoning choices, chat binding/recovery and saved/archived chat management, and native Codex engine/model/permission controls. User-authored task bodies, analysis, paths, chat titles and provider model names are not message keys. Whole-application English coverage is a remaining requirement, not an acceptance claim of these incremental changes.
+
+Open-document selection uses a compact, bounded popover (up to 420px wide, 520px/70vh high and the available anchor space). Its header, search and footer remain fixed while the list scrolls. Search matches names and paths, preserves tab order, initially highlights the active file and supports arrows/Enter/Escape. Active-file selection and unsaved changes remain visible, names/paths remain untouched, and reopening resets the search.
+
+Workbench rails, tool panes and content use distinct theme-derived surfaces. Both rails use the same filled active-tool tile and accent marker, with no hardcoded palette substitution. Tool panes have subtle bounded edges; hiding a tool still releases its allocation and preserves its live state.
+
 Every session-owned viewer that renders a Markdown file/document MUST use the shared translation surface. The viewer keeps the original document as its source, offers a target selector populated only from globally enabled translation languages, and starts translation explicitly. The click enqueues one highest-priority, single-attempt task for the dedicated ephemeral Translator. Worker rate-limit suspension does not delay Translator creation or execution. While translating it exposes a bounded loading state; any execution failure terminates immediately with “A tradução falhou. Tente novamente mais tarde.” and does not replace or mutate the original. Once translated, the viewer identifies the active translated language and offers an immediate return to the original view. Translation is presentation state only: no file save, artifact mutation, bundle rewrite or project-knowledge update occurs as a side effect.
 
 ## Canonical tabs and dismissible header overlays
@@ -600,3 +626,20 @@ only a copy intent and cannot supply arbitrary clipboard text. Failed startup
 keeps the diagnostic splash available until the user closes it. Logging/display
 faults MUST NOT change command exit codes or prevent startup. Credentials are
 redacted before display; historical launcher logs are not replayed.
+
+## Independent IDE utilities (operator request, 2026-10-16)
+
+Terminal, Problemas and Saída de execução have separate activity launchers.
+The utility host has no permanent collapsed strip. Hiding it preserves the
+mounted PTYs; closing an instance remains explicit. Each tool remembers its
+bottom/right docking preference and dimensions per project. Code problems
+come from local Monaco diagnostics; runtime incidents remain in Erros de
+execução and execution evidence remains in Saída de execução. Utility layout
+never changes command execution, permission or transport contracts.
+
+Document context actions target the clicked document in its owning editor
+surface. Batch closes skip pinned documents and first resolve all dirty
+candidates through one Save / Discard / Cancel decision; cancellation and
+save failure leave the batch open. Closed-document history is bounded and
+local to that editor. Pinning persists per project; preview rendering is
+independent of pinning and never discards an edited document implicitly.

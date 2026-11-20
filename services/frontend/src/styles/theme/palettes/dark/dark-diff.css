@@ -37,9 +37,9 @@
 :root[data-theme='dark'] .agent-drawer-heading strong,
 :root[data-theme='dark'] .file-explorer > header strong,
 :root[data-theme='dark'] .ide-terminal > header strong { color: #f2f2f2; }
+
 :root[data-theme='dark'] .workspace-topbar .icon-button,
-:root[data-theme='dark'] .agent-policy-icon,
-:root[data-theme='dark'] .agent-activity-bar button { color: #adadad; }
+:root[data-theme='dark'] .agent-policy-icon{ color: #adadad; }
 :root[data-theme='dark'] .agent-direct-chatgpt-tab button,
 :root[data-theme='dark'] .agent-surface-tabs button {
   border-color: #383838;
@@ -56,10 +56,7 @@
   background: #212121;
   color: #f2f2f2;
 }
-:root[data-theme='dark'] .agent-activity-bar button:hover,
-:root[data-theme='dark'] .agent-activity-bar button.active { background: #303030; color: #f2f2f2; }
-:root[data-theme='dark'] .agent-activity-bar button.active::before { background: #d0d0d0; }
-:root[data-theme='dark'] .agent-activity-bar button b { background: #4d4d4d; color: #f2f2f2; }
+
 :root[data-theme='dark'] .composer textarea::placeholder,
 :root[data-theme='dark'] .panel-search-field input::placeholder,
 :root[data-theme='dark'] .explorer-search input::placeholder { color: #a0a0a0; opacity: 1; }

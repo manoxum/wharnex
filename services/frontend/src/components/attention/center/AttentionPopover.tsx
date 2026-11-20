@@ -1,9 +1,9 @@
+import { translate as uiText, interfaceLocale } from '../../../lib/workspace/localization'
 import { useEffect, useRef, type CSSProperties } from 'react'
 import { attentionPreviewItems, summarizeAttention, type AttentionItem } from '../../../lib/attention/center/attentionCenter'
 import { AttentionList } from './AttentionList'
 import { Icon } from '../../presentation/chrome/Icon'
 
-const countFormat = new Intl.NumberFormat('pt-PT')
 
 export function AttentionPopover({ items, activeChatId, busy, position, onOpen, onAction, onOpenAll, onClose }: {
   items: AttentionItem[]
@@ -15,11 +15,11 @@ export function AttentionPopover({ items, activeChatId, busy, position, onOpen, 
   onOpenAll: () => void
   onClose: () => void
 }) {
+  const countFormat = new Intl.NumberFormat(interfaceLocale())
   const rootRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const summary = summarizeAttention(items)
   const preview = attentionPreviewItems(items)
-  const hiddenCount = summary.total - preview.length
 
   // Opening the preview is an explicit user action. Keep it transient like the
   // other header popovers: Escape and outside pointer presses dismiss it, while
@@ -43,29 +43,26 @@ export function AttentionPopover({ items, activeChatId, busy, position, onOpen, 
     }
   }, [onClose])
 
-  return <section ref={rootRef} id="agent-attention-popover" className="agent-attention-popover" style={position} role="dialog" aria-modal="false" aria-label="Alertas ativos" aria-describedby="agent-attention-popover-description">
-    <header>
+  return <section ref={rootRef} id="agent-attention-popover" className="agent-attention-popover text-whx-body" style={position} role="dialog" aria-modal="false" aria-label={uiText("Alertas ativos")}>
+    <header className="!min-h-10 !px-3 !py-2">
       <div className="agent-attention-popover-heading">
         <span className="agent-attention-popover-symbol" aria-hidden="true"><Icon name={summary.urgent ? 'shield' : 'bell'} size={16}/></span>
         <div className="agent-attention-popover-heading-copy">
-          <span>Atenção do projeto</span>
-          <h2 id="agent-attention-popover-title">Centro de Alertas</h2>
-          <p id="agent-attention-popover-description">O que precisa de atenção agora, sem ruído.</p>
+          <h2 id="agent-attention-popover-title" className="!m-0 text-whx-title font-semibold leading-snug">{uiText("Centro de Alertas")}</h2>
         </div>
       </div>
-      <button ref={closeRef} type="button" className="agent-attention-popover-close" onClick={onClose} aria-label="Fechar Centro de Alertas" title="Fechar"><Icon name="close" size={13}/></button>
+      <button ref={closeRef} type="button" className="agent-attention-popover-close !size-8 text-whx-label" onClick={onClose} aria-label={uiText("Fechar Centro de Alertas")} title={uiText("Fechar")}><Icon name="close" size={13}/></button>
     </header>
-    <div className="agent-attention-popover-metrics" aria-label="Resumo dos alertas">
-      <span><b>{countFormat.format(summary.total)}</b><small>{summary.total === 1 ? 'Ativo' : 'Ativos'}</small></span>
-      <span className={summary.urgent ? 'danger' : ''}><b>{countFormat.format(summary.urgent)}</b><small>{summary.urgent === 1 ? 'Urgente' : 'Urgentes'}</small></span>
-      <span><b>{countFormat.format(summary.actionable)}</b><small>Com ação</small></span>
+    <div className="agent-attention-popover-metrics" aria-label={uiText("Resumo dos alertas")}>
+      <span><b className="font-mono text-whx-title font-medium">{countFormat.format(summary.total)}</b><small className="text-whx-caption leading-tight">{summary.total === 1 ? uiText("Ativo") : uiText("Ativos")}</small></span>
+      <span className={summary.urgent ? 'danger' : ''}><b className="font-mono text-whx-title font-medium">{countFormat.format(summary.urgent)}</b><small className="text-whx-caption leading-tight">{summary.urgent === 1 ? uiText("Urgente") : uiText("Urgentes")}</small></span>
+      <span><b className="font-mono text-whx-title font-medium">{countFormat.format(summary.actionable)}</b><small className="text-whx-caption leading-tight">{uiText("Com ação")}</small></span>
     </div>
     <div className="agent-attention-popover-list">
       {preview.length
         ? <AttentionList items={preview} activeChatId={activeChatId} busy={busy} density="compact" onOpen={onOpen} onAction={onAction}/>
-        : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>Nada requer atenção</strong><span>Novas notificações deste projeto aparecerão aqui.</span></div>}
-      {hiddenCount > 0 ? <p className="agent-attention-popover-overflow">Mais {countFormat.format(hiddenCount)} {hiddenCount === 1 ? 'alerta está disponível' : 'alertas estão disponíveis'} no painel completo.</p> : null}
+        : <div className="agent-drawer-empty attention-empty"><Icon name="check" size={18}/><strong>{uiText("Nada requer atenção")}</strong></div>}
     </div>
-    <footer><button type="button" onClick={onOpenAll} aria-label="Ver todos os alertas"><span>Abrir centro de alertas</span><span className="agent-attention-popover-footer-count">{countFormat.format(summary.total)}</span><Icon name="arrow-right" size={12}/></button></footer>
+    <footer className="text-whx-label"><button type="button" onClick={onOpenAll} aria-label={uiText("Ver todos os alertas")}><span>{uiText("Abrir centro de alertas")}</span><span className="agent-attention-popover-footer-count text-whx-caption">{countFormat.format(summary.total)}</span><Icon name="arrow-right" size={12}/></button></footer>
   </section>
 }

@@ -66,6 +66,13 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     return () => { cancelled = true }
   }, [session.id, session.last_host_applied_at, drawer, pinnedTools, tools])
 
+  useEffect(() => {
+    if (side !== 'left') return
+    const reveal = (event: Event) => { const detail = (event as CustomEvent<{ path: string }>).detail; if (detail?.path) props.onOpenFile(detail.path) }
+    window.addEventListener('wharnex:open-code-problem', reveal)
+    return () => window.removeEventListener('wharnex:open-code-problem', reveal)
+  }, [side, props.onOpenFile])
+
   useUITestingContextSync(session, drawer, tools, pinnedTools)
 
   const persistenceScope = `${session.project_path}\n${side}`
@@ -100,7 +107,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     } as React.CSSProperties
     const panelLabel = workspaceDrawerLabel(candidate)
     return <aside key={candidate} ref={active ? geometry.root : undefined} hidden={!active} data-panel-side={side} data-panel-tool={candidate} data-panel-preferred-width={drawerWidth} data-panel-overlay={geometry.overlay} data-panel-maximized={active && toolWindow.maximized}
-      className={`relative !z-10 !flex [&[hidden]]:!hidden !min-h-0 !min-w-0 !flex-col !flex-[0_1_var(--workspace-drawer-width)] !w-[var(--workspace-drawer-width)] !overflow-hidden !border-0 !bg-whx-side !text-whx-soft !shadow-none [&>*]:min-h-0 [&>*]:min-w-0 [&_.whx-panel-heading]:!pr-12 data-[panel-maximized=true]:!absolute data-[panel-maximized=true]:!inset-0 data-[panel-maximized=true]:!z-[60] data-[panel-maximized=true]:!w-auto data-[panel-maximized=true]:!max-w-none data-[panel-overlay=true]:!absolute data-[panel-overlay=true]:!inset-y-0 data-[panel-overlay=true]:!z-50 data-[panel-overlay=true]:!max-w-[calc(100cqw-88px)] ${side === 'right' ? 'data-[panel-overlay=true]:!right-11' : 'data-[panel-overlay=true]:!left-11'} agent-drawer workspace-side-drawer workspace-side-drawer-${side} ${workspaceDrawerClass(candidate)}`} style={drawerStyle}>
+      className={`relative !z-10 !flex [&[hidden]]:!hidden !min-h-0 !min-w-0 !flex-col !flex-[0_1_var(--workspace-drawer-width)] !w-[var(--workspace-drawer-width)] !overflow-hidden !border !border-whx-border-soft !rounded-lg !bg-whx-side !text-whx-soft !shadow-none [&>*]:min-h-0 [&>*]:min-w-0 [&_.whx-panel-heading]:!pr-12 data-[panel-maximized=true]:!absolute data-[panel-maximized=true]:!inset-0 data-[panel-maximized=true]:!z-[60] data-[panel-maximized=true]:!w-auto data-[panel-maximized=true]:!max-w-none data-[panel-overlay=true]:!absolute data-[panel-overlay=true]:!inset-y-0 data-[panel-overlay=true]:!z-50 data-[panel-overlay=true]:!max-w-[calc(100cqw-96px)] ${side === 'right' ? 'data-[panel-overlay=true]:!right-12' : 'data-[panel-overlay=true]:!left-12'} agent-drawer workspace-side-drawer workspace-side-drawer-${side} ${workspaceDrawerClass(candidate)}`} style={drawerStyle}>
       <div className="workspace-panel-toolbar" role="toolbar" aria-label={`Ferramentas do painel ${panelLabel}`}>
         <PanelOptions label={panelLabel} maximized={active && toolWindow.maximized} onMaximize={toolWindow.toggle} side={side} pinned={pinnedTools.some((tool) => tool === candidate)} onMove={props.onMoveTool && isWorkspaceTool(candidate) ? (nextSide, pinned) => props.onMoveTool?.(candidate, nextSide, undefined, pinned) : undefined} scale={panelFontScale} onScale={(delta) => adjustPanelFontScale(candidate, delta)} onReload={projectExplorer ? undefined : () => reloadPanel(candidate)}/>
       </div>
@@ -112,7 +119,7 @@ export function WorkspaceSideRail(props: WorkspaceSideRailProps) {
     </aside>
   })
   const splitter = drawer ? <button type="button" role="separator" aria-orientation="vertical" aria-valuenow={geometry.width} aria-valuemin={resize.minimum} aria-valuemax={resize.maximum} data-panel-overlay={geometry.overlay}
-    className={`[[data-tool-maximized]_&]:!hidden relative z-20 col-start-3 row-start-3 !w-1.5 !shrink-0 !basis-1.5 !touch-none !cursor-col-resize !rounded-none !border-0 !bg-transparent !p-0 transition-colors hover:!bg-whx-accent/30 focus-visible:!bg-whx-accent/30 focus-visible:!outline-none motion-reduce:transition-none data-[panel-overlay=true]:!hidden agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`}
+    className={`[[data-tool-maximized]_&]:!hidden relative z-20 col-start-3 row-start-3 !w-1.5 !shrink-0 !basis-1.5 !touch-none !cursor-col-resize !rounded-none !border-0 !bg-transparent !p-0 focus-visible:!outline-1 focus-visible:!outline-whx-border-soft data-[panel-overlay=true]:!hidden agent-drawer-splitter workspace-side-splitter workspace-side-splitter-${side}`}
     aria-label={`Redimensionar painel lateral ${side === 'left' ? 'esquerdo' : 'direito'}`} title="Arraste ou use as setas para redimensionar" onPointerDown={resize.begin} onKeyDown={resize.keyboard}/> : null
 
   const backdrop = drawer ? <button type="button" aria-label="Recolher painel sobreposto" onClick={() => onDrawer('')} data-panel-overlay={geometry.overlay}

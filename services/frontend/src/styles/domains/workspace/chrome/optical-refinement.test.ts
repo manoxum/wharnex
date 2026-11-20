@@ -33,7 +33,7 @@ describe('premium optical refinement', () => {
     expect(dockerHeaderSource).toContain('<PanelHeader')
     expect(libraryHeaderSource).toContain('<PanelHeader')
     expect(databaseSource).toContain('<PanelHeader')
-    expect(sharedHeaderSource).toContain('min-h-14')
+    expect(sharedHeaderSource).toContain('min-h-10')
     expect(sharedHeaderSource).toContain('!text-whx-title')
     expect(sharedHeaderSource).toContain('bg-whx-surface')
     expect(tabButtonSource).toContain('text-sm!')

@@ -98,3 +98,10 @@ and zero badges, accessible labels, selected blue underline, keyboard navigation
 selection callbacks, disabled tabs and resource actions. Browser verification MUST
 exercise wide/narrow owning containers in Light/Dark and non-default UI scale.
 New tab surfaces MUST be included in the shared-implementation coverage gate.
+
+## Document density refinement (operator request, 2026-10-16)
+
+Open editor documents keep the document appearance, natural widths bounded at
+230px and 150px title truncation. Normal density remains 36px; Compact uses
+32px. Both use UI-scaled 12px labels. Pin/dirty/Git states, overflow and
+keyboard navigation remain visible; document lists add path search.

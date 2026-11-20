@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ShellChrome } from '../shell/WorkspaceShell'
-beforeEach(() => { localStorage.clear(); delete window.wharnessDesktop })
+import { setLocalePreference } from '../../../lib/workspace/localization'
+beforeEach(() => { localStorage.clear(); setLocalePreference('pt'); delete window.wharnessDesktop })
 afterEach(() => { vi.restoreAllMocks(); delete window.wharnessDesktop })
 it('keeps header popovers mutually exclusive', async () => {
     render(<ShellChrome projects={['/tmp/alpha']} activeProject="/tmp/alpha" mode="agent" busy={false} onActivate={vi.fn()} onMode={vi.fn()} onSettings={vi.fn()} onUnbind={vi.fn()} onBind={vi.fn()} onNewWindow={vi.fn()} />)

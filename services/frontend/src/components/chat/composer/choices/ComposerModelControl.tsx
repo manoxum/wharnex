@@ -1,3 +1,4 @@
+import { translate as uiText, formatMessage } from '../../../../lib/workspace/localization'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { desktopBridge } from '../../../../lib/desktop/bridge/desktop'
 import { errorMessage } from '../../../../lib/workspace/dialogs'
@@ -25,7 +26,7 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
   const listId = useId()
   const bridge = desktopBridge()?.chatgpt
   const available = Boolean(workspaceChatId && bridge?.getChatGPTModels && bridge?.setChatGPTModel)
-  const current = inventory?.options.find((option) => option.id === inventory.current)?.label || inventory?.current || 'Modelo'
+  const current = inventory?.options.find((option) => option.id === inventory.current)?.label || inventory?.current || uiText('Modelo')
 
   useEffect(() => () => { revision.current += 1 }, [])
   useEffect(() => {
@@ -71,11 +72,11 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
     try {
       const result = await bridge!.getChatGPTModels({ workspaceChatId, ...(url ? { url } : {}) })
       if (revision.current !== generation) return
-      if (!result.ok || !result.options.length) throw new Error(result.detail || 'O ChatGPT não disponibilizou os modelos deste chat.')
+      if (!result.ok || !result.options.length) throw new Error(result.detail || uiText('O ChatGPT não disponibilizou os modelos deste chat.'))
       setInventory(result)
       setDiscoveryReady(true)
     } catch (cause) {
-      if (revision.current === generation) setError(errorMessage(cause, 'Não foi possível consultar os modelos do chat.'))
+      if (revision.current === generation) setError(errorMessage(cause, uiText('Não foi possível consultar os modelos do chat.')))
     } finally {
       if (revision.current === generation) setPending(false)
     }
@@ -89,12 +90,12 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
     try {
       const result = await bridge!.setChatGPTModel({ workspaceChatId, ...(url ? { url } : {}), model })
       if (revision.current !== generation) return
-      if (!result.ok || result.current !== model) throw new Error(result.detail || 'O ChatGPT não confirmou a mudança de modelo.')
+      if (!result.ok || result.current !== model) throw new Error(result.detail || uiText('O ChatGPT não confirmou a mudança de modelo.'))
       setInventory(result)
       setOpen(false)
       trigger.current?.focus()
     } catch (cause) {
-      if (revision.current === generation) setError(errorMessage(cause, 'Não foi possível escolher o modelo.'))
+      if (revision.current === generation) setError(errorMessage(cause, uiText('Não foi possível escolher o modelo.')))
     } finally {
       if (revision.current === generation) setPending(false)
     }
@@ -122,16 +123,16 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
   }
 
   return <div ref={shell} className="relative inline-flex shrink-0" onKeyDown={navigate}>
-    <button ref={trigger} type="button" aria-label="Modelo do ChatGPT" aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
-      title={!available ? 'Escolha de modelo disponível no Desktop para um chat vinculado' : disabled ? 'Modelo bloqueado durante a request ou no transporte manual' : `Modelo do ChatGPT · ${current}`}
+    <button ref={trigger} type="button" aria-label={uiText("Modelo do ChatGPT")} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? listId : undefined}
+      title={!available ? uiText("Escolha de modelo disponível no Desktop para um chat vinculado") : disabled ? uiText("Modelo bloqueado durante a request ou no transporte manual") : formatMessage('Modelo do ChatGPT · {model}', { model: current })}
       disabled={disabled || !available || pending} onClick={() => void refresh()}
       className={`${choiceChrome} !h-8 !min-h-8 cursor-pointer! py-0! font-sans text-[calc(10.5px*var(--ui-font-scale))]! font-semibold! disabled:cursor-default! disabled:opacity-50`}>
       <Icon name={pending ? 'refresh' : 'chatgpt'} size={13} /><span className="max-w-[16ch] truncate">{current}</span><Icon name="chevron" size={10} />
     </button>
     {open && <div id={listId} style={{ minWidth: placement.minWidth, maxWidth: placement.maxWidth, maxHeight: placement.maxHeight }} className={`absolute ${placement.className} z-50 w-max overflow-y-auto rounded-[var(--radius-popover)] border border-whx-border bg-whx-elevated p-1.5 text-sm text-whx-text shadow-lg`}>
-      {pending ? <p role="status" className="m-0! p-1.5">A consultar o ChatGPT…</p> : null}
+      {pending ? <p role="status" className="m-0! p-1.5">{uiText("A consultar o ChatGPT…")}</p> : null}
       {error ? <p role="alert" className="m-0! p-1.5 text-whx-warning">{error}</p> : null}
-      {inventory && discoveryReady && <div role="listbox" aria-label="Modelos disponíveis neste chat" aria-busy={pending} className="max-h-64 overflow-y-auto">
+      {inventory && discoveryReady && <div role="listbox" aria-label={uiText("Modelos disponíveis neste chat")} aria-busy={pending} className="max-h-64 overflow-y-auto">
         {inventory.options.map((option) => <button key={option.id} type="button" role="option" aria-selected={option.id === inventory.current}
           tabIndex={option.id === inventory.current ? 0 : -1}
           disabled={disabled || pending || option.disabled} onClick={() => void choose(option.id)}
@@ -139,7 +140,7 @@ function OwnedModelControl({ workspaceChatId, url, disabled }: Props) {
           <span>{option.label}</span>{option.id === inventory.current ? <Icon name="check" size={12} /> : null}
         </button>)}
       </div>}
-      {!pending && error ? <button type="button" className="mt-1! min-h-6! border-whx-border! bg-whx-muted! px-2! py-1! text-sm! text-whx-soft!" onClick={() => { setOpen(false) }}>Fechar e tentar novamente</button> : null}
+      {!pending && error ? <button type="button" className="mt-1! min-h-6! border-whx-border! bg-whx-muted! px-2! py-1! text-sm! text-whx-soft!" onClick={() => { setOpen(false) }}>{uiText("Fechar e tentar novamente")}</button> : null}
     </div>}
   </div>
 }

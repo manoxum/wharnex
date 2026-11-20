@@ -1,6 +1,6 @@
 /* Git */
 
-.git-tab-content { padding: 14px; gap: 12px; background: transparent; }
+.git-tab-content { gap: 12px; background: transparent; }
 .git-section,
 .git-worktree-card,
 .git-branch-hero {

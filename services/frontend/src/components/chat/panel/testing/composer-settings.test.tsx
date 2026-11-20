@@ -93,7 +93,7 @@ it('resizes the composer from its top border instead of the native bottom-right 
     expect(composer.style.height).toBe('260px')
 
     fireEvent(handle, pointerEvent('pointermove', 900))
-    expect(composer.style.height).toBe('180px')
+    expect(composer.style.height).toBe('156px')
     fireEvent(handle, pointerEvent('pointerup', 900))
   })
 

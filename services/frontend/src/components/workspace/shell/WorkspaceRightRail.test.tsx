@@ -8,11 +8,15 @@ describe('WorkspaceRightRail', () => {
     const onError = vi.fn()
     const view = render(<WorkspaceRightRail drawer="" onDrawer={onDrawer} onError={onError}/>)
 
+    expect(view.container.querySelector('.workspace-right-rail')?.className).toContain('bg-whx-rail')
     expect(screen.queryByLabelText('Biblioteca de ficheiros')).toBeNull()
     fireEvent.click(screen.getByLabelText('Database connection'))
     expect(onDrawer).toHaveBeenCalledWith('database')
 
     view.rerender(<WorkspaceRightRail drawer="database" onDrawer={onDrawer} onError={onError}/>)
+    const splitter = screen.getByRole('button', { name: 'Redimensionar painel lateral direito' })
+    expect(splitter.className).toContain('cursor-col-resize')
+    expect(splitter.className).not.toContain('whx-accent')
     expect(screen.getByText(/passwords nunca são persistidas/i)).toBeTruthy()
     fireEvent.click(screen.getByRole('tab', { name: 'SQL' }))
     expect(screen.getByText('SQL console')).toBeTruthy()
